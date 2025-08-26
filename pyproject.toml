@@ -1,0 +1,11 @@
+[project]
+name = "ssd"
+version = "0.1.0"
+description = "Simple Scrobbling Daemon"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dbus-next>=0.2.3",
+    "pylast>=5.5.0",
+    "python-dotenv>=1.1.1",
+]
