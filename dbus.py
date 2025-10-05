@@ -19,7 +19,8 @@ async def main():
     object_path = "/org/mpris/MediaPlayer2"
 
     introspection = await bus.introspect(bus_name, object_path)
-    print(introspection)  # <dbus_next.introspection.Node object at 0x7f664196b2d0>
+    # print(introspection)
+    # <dbus_next.introspection.Node object at 0x7f664196b2d0>
 
     obj = bus.get_proxy_object(
         "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2", introspection
@@ -30,10 +31,36 @@ async def main():
 
     # call methods on the interface (this causes the media player to play)
     # await player.call_play()
-    await player.call_play_pause()
+    # await player.call_play_pause()
+
+    metadata = await player.get_metadata()
+    # print(metadata)
+
+    # artist = metadata["xesam:artist"].value
+    # Safer to use get with fallback
+    artist_meta = metadata.get("xesam:artist", None)
+    title_meta = metadata.get("xesam:title", None)
+    album_meta = metadata.get("xesam:album", None)
+
+    if artist_meta:
+        print(artist_meta.value)
+        # ['Esthero']
+        print("Propreties: ", properties)
+        # Propreties:  <dbus_next.aio.proxy_object.ProxyInterface object at 0x7fe7af373f50>
+
+    if title_meta:
+        print(title_meta.value)
+
+    if album_meta:
+        print(album_meta.value)
+
+    async def set_volume(x):
+        await player.set_volume(x)
+        print("New Volume", x)
 
     volume = await player.get_volume()
-    print(f"current volume: {volume}, setting to 0.5")
+    print("Initial Volume", volume)
+    await set_volume(0.5)
 
 
 # loop.run_until_complete(main())
