@@ -1,5 +1,5 @@
-.md
-.vim
+*.md
+*.vim
 
 # Python-generated files
 __pycache__/
