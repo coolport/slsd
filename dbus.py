@@ -26,6 +26,10 @@ class MPrisPlayer:
         self.introspection = None
         self.obj = None
         self.properties = None
+        self.metadata = None
+
+    async def change_callback(self, i, c, n):
+        print("\nSomething Changed...")
 
     async def connect(self):
         self.bus = await MessageBus().connect()
@@ -35,28 +39,49 @@ class MPrisPlayer:
         )
         self.player = self.obj.get_interface(PLAYER_PATH)
         self.properties = self.obj.get_interface(PROPERTY_PATH)
+        self.properties.on_properties_changed(self.change_callback)
         print("ProxyInterface: ", type(self.player))
 
         return self
 
+    async def get_metadata(self):
+        metadata = await self.player.get_metadata()
+        self.metadata = metadata
+        return metadata
+
     # async def get_metadata(self):
     #     self.propret
-    async def play_pause(self):
-        await self.player.call_play_pause()
+    # async def play_pause(self):
+    #     await self.player.call_play_pause()
 
 
 async def main():
+    await asyncio.sleep(1)
     player = MPrisPlayer(BUS_NAME, OBJECT_PATH)
     await player.connect()
-    await player.play_pause()
+
+    # await player.play_pause()
+    # await player.player.set_volume(0.1)
+    volume = await player.player.get_volume()
+    print(volume)
+    hello = await player.get_metadata()
+    print("hi: ", hello)
+    print("FROMMM: ", player.metadata)
+
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        pass
 
 
 # loop.run_until_complete(main())
 if __name__ == "__main__":
     try:
         # asyncio.run(main())
-        loop = asyncio.get_event_loop()
-        asyncio.ensure_future(main())
-        loop.run_forever()
+        # loop = asyncio.get_event_loop()
+        # asyncio.ensure_future(main())
+        # loop.run_forever()
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("Exiting")
+        print("\nExiting")
