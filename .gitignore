@@ -1,5 +1,7 @@
 *.md
 *.vim
+*.py.bak
+*.bak
 
 # Python-generated files
 __pycache__/
