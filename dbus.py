@@ -1,11 +1,7 @@
 import asyncio
 from dbus_next.aio import MessageBus
 
-# loop = asyncio.get_event_loop()
 # busctl --user list | grep mpris
-# org.mpris.MediaPlayer2.playerctld                                                           2317 playerctld      aidan :1.1          session-c1.scope c1      -
-# org.mpris.MediaPlayer2.spotify                                                           2300185 spotify         aidan :1.85211      session-c1.scope c1      -
-# peek
 # busctl --user introspect org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2
 
 # TODO: exception handling, typing etc
@@ -31,6 +27,9 @@ class MPrisPlayer:
     async def change_callback(self, i, c, n):
         print("\nSomething Changed...")
 
+    async def subscribe_signal(self):
+        self.properties.on_properties_changed(self.change_callback)
+
     async def connect(self):
         self.bus = await MessageBus().connect()
         self.introspection = await self.bus.introspect(self.bus_name, self.object_path)
@@ -39,7 +38,6 @@ class MPrisPlayer:
         )
         self.player = self.obj.get_interface(PLAYER_PATH)
         self.properties = self.obj.get_interface(PROPERTY_PATH)
-        self.properties.on_properties_changed(self.change_callback)
         print("ProxyInterface: ", type(self.player))
 
         return self
@@ -48,11 +46,6 @@ class MPrisPlayer:
         metadata = await self.player.get_metadata()
         self.metadata = metadata
         return metadata
-
-    # async def get_metadata(self):
-    #     self.propret
-    # async def play_pause(self):
-    #     await self.player.call_play_pause()
 
 
 async def main():
@@ -75,13 +68,8 @@ async def main():
         pass
 
 
-# loop.run_until_complete(main())
 if __name__ == "__main__":
     try:
-        # asyncio.run(main())
-        # loop = asyncio.get_event_loop()
-        # asyncio.ensure_future(main())
-        # loop.run_forever()
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nExiting")
