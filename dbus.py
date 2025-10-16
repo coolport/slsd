@@ -10,8 +10,6 @@ from dbus_next.aio import MessageBus
 
 # TODO: exception handling, typing etc
 
-# Establish connection to interfaces
-
 
 BUS_NAME = "org.mpris.MediaPlayer2.spotify"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
@@ -56,6 +54,9 @@ async def main():
 # loop.run_until_complete(main())
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        # asyncio.run(main())
+        loop = asyncio.get_event_loop()
+        asyncio.ensure_future(main())
+        loop.run_forever()
     except KeyboardInterrupt:
         print("Exiting")
