@@ -1,5 +1,6 @@
 import pylast
 import os
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,23 +28,23 @@ class Scrobbler:
         )
         return self
 
-
-def main():
-    scrobbler = Scrobbler(API_KEY, API_SECRET, USERNAME, PASSWORD_HASH).connect()
-
-    track = scrobbler.network.get_track("Iron Maiden", "The Nomad")
-    track.love()
-
-    # artist = "Iron Maiden"
-    # title = "The Nomad"
-    # base_timestamp = int(time.time())
-    # print(base_timestamp)
-    # # print(pylast.__file__)
-    #
-    # for x in range(1):
-    #     ts = base_timestamp - x
-    #     network.scrobble(artist=artist, title=title, timestamp=ts)
+    def scrobble(self, artist, title):
+        artist = artist
+        title = title
+        timestamp = int(time.time())
+        self.network.scrobble(artist=artist, title=title, timestamp=timestamp)
 
 
-if __name__ == "__main__":
-    main()
+# async def main():
+#     scrobbler = Scrobbler(API_KEY, API_SECRET, USERNAME, PASSWORD_HASH)
+#     scrobbler.connect()
+#
+#     track = scrobbler.network.get_track("Iron Maiden", "The Nomad")
+#     track.unlove()
+#
+#     artist = "Iron Maiden"
+#     title = "The Nomad"
+#     await scrobbler.scrobble(artist, title)
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
