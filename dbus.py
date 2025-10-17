@@ -24,28 +24,30 @@ class MPrisPlayer:
         self.properties = None
         self.metadata = None
 
+        # TODO: exception handling, null handling, .get etc
+
     async def signal_change_callback(
         self, interface_name, changed_properties, invalidated_properties
     ):
         if "Metadata" in changed_properties:
             metadata_variant = changed_properties["Metadata"]
             metadata = metadata_variant.value
-            print("\nMetadat Variant: ", metadata_variant)
-            print("\nXXX: ", metadata)
-            print("Track Title: ", metadata["xesam:title"].value)
+            print("\nMetadata Variant: ", metadata_variant)
+            print("\nMetadata: ", metadata)
+
+            artist = metadata["xesam:artist"].value[0]
+            print("\nTrack Arist: ", artist)
+            track = metadata["xesam:title"].value
+            print("\nTrack Title: ", track)
+
+            return artist, track
 
         print("\nInterface Name: ")
         pprint(interface_name)
-        print("\nChanged Properties")
+        print("\nChanged Properties:")
         pprint(changed_properties)
         print("\nInvalidated Properties:")
         pprint(invalidated_properties)
-
-        # if c.['Metadata'}:
-        #     print("metadata is whats changed")
-
-    # async def subscribe_signal(self):
-    #     self.properties.on_properties_changed(self.signal_change_callback)
 
     async def connect(self):
         self.bus = await MessageBus().connect()
@@ -76,7 +78,8 @@ async def main():
     print("Volume: ", volume)
     # hello = await player.get_metadata()
     # print("\nMetadata1: ", hello)
-    # print("\nMetadata2: ", player.metadata)
+    # print("\nMetadata2: ", player.metadata["xesam:album"])
+    # print("\nMetadata2: ", player.metadata.get("xesam:album", None))
 
     try:
         while True:
