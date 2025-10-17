@@ -1,4 +1,3 @@
-import asyncio
 from pprint import pprint
 from dbus_next.aio import MessageBus
 
@@ -7,14 +6,15 @@ from dbus_next.aio import MessageBus
 
 # TODO: exception handling, typing etc
 
-BUS_NAME = "org.mpris.MediaPlayer2.spotify"
+# BUS_NAME = "org.mpris.MediaPlayer2.spotify"
+BUS_NAME = "org.mpris.MediaPlayer2.audacious"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_PATH = "org.mpris.MediaPlayer2.Player"
 PROPERTY_PATH = "org.freedesktop.DBus.Properties"
 
 
 class MPrisPlayer:
-    def __init__(self, bus_name, object_path):
+    def __init__(self, bus_name, object_path, change_callback_function=None):
         self.bus_name = bus_name
         self.object_path = object_path
         self.player = None
@@ -23,8 +23,7 @@ class MPrisPlayer:
         self.obj = None
         self.properties = None
         self.metadata = None
-
-        # TODO: exception handling, null handling, .get etc
+        self.change_callback_function = change_callback_function
 
     async def signal_change_callback(
         self, interface_name, changed_properties, invalidated_properties
@@ -32,22 +31,12 @@ class MPrisPlayer:
         if "Metadata" in changed_properties:
             metadata_variant = changed_properties["Metadata"]
             metadata = metadata_variant.value
-            print("\nMetadata Variant: ", metadata_variant)
-            print("\nMetadata: ", metadata)
 
             artist = metadata["xesam:artist"].value[0]
-            print("\nTrack Arist: ", artist)
             track = metadata["xesam:title"].value
-            print("\nTrack Title: ", track)
 
-            return artist, track
-
-        print("\nInterface Name: ")
-        pprint(interface_name)
-        print("\nChanged Properties:")
-        pprint(changed_properties)
-        print("\nInvalidated Properties:")
-        pprint(invalidated_properties)
+            if self.change_callback_function is not None:
+                await self.change_callback_function(artist, track)
 
     async def connect(self):
         self.bus = await MessageBus().connect()
@@ -70,26 +59,25 @@ class MPrisPlayer:
         return metadata
 
 
-async def main():
-    player = MPrisPlayer(BUS_NAME, OBJECT_PATH)
-    await player.connect()
-
-    volume = await player.player.get_volume()
-    print("Volume: ", volume)
-    # hello = await player.get_metadata()
-    # print("\nMetadata1: ", hello)
-    # print("\nMetadata2: ", player.metadata["xesam:album"])
-    # print("\nMetadata2: ", player.metadata.get("xesam:album", None))
-
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        pass
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nExiting")
+# async def main():
+#     player = MPrisPlayer(BUS_NAME, OBJECT_PATH)
+#     await player.connect()
+#
+#     volume = await player.player.get_volume()
+#     print("Volume: ", volume)
+#     # hello = await player.get_metadata()
+#     # print("\nMetadata1: ", hello)
+#     # print("\nMetadata2: ", player.metadata["xesam:album"])
+#     # print("\nMetadata2: ", player.metadata.get("xesam:album", None))
+#
+#     try:
+#         while True:
+#             await asyncio.sleep(3600)
+#     except asyncio.CancelledError:
+#         pass
+#
+# if __name__ == "__main__":
+#     try:
+#         asyncio.run(main())
+#     except KeyboardInterrupt:
+#         print("\nExiting")
