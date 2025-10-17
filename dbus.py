@@ -1,11 +1,11 @@
 import asyncio
+from pprint import pprint
 from dbus_next.aio import MessageBus
 
 # busctl --user list | grep mpris
 # busctl --user introspect org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2
 
 # TODO: exception handling, typing etc
-
 
 BUS_NAME = "org.mpris.MediaPlayer2.spotify"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
@@ -24,11 +24,28 @@ class MPrisPlayer:
         self.properties = None
         self.metadata = None
 
-    async def change_callback(self, i, c, n):
-        print("\nSomething Changed...")
+    async def signal_change_callback(
+        self, interface_name, changed_properties, invalidated_properties
+    ):
+        if "Metadata" in changed_properties:
+            metadata_variant = changed_properties["Metadata"]
+            metadata = metadata_variant.value
+            print("\nMetadat Variant: ", metadata_variant)
+            print("\nXXX: ", metadata)
+            print("Track Title: ", metadata["xesam:title"].value)
 
-    async def subscribe_signal(self):
-        self.properties.on_properties_changed(self.change_callback)
+        print("\nInterface Name: ")
+        pprint(interface_name)
+        print("\nChanged Properties")
+        pprint(changed_properties)
+        print("\nInvalidated Properties:")
+        pprint(invalidated_properties)
+
+        # if c.['Metadata'}:
+        #     print("metadata is whats changed")
+
+    # async def subscribe_signal(self):
+    #     self.properties.on_properties_changed(self.signal_change_callback)
 
     async def connect(self):
         self.bus = await MessageBus().connect()
@@ -38,7 +55,10 @@ class MPrisPlayer:
         )
         self.player = self.obj.get_interface(PLAYER_PATH)
         self.properties = self.obj.get_interface(PROPERTY_PATH)
-        print("ProxyInterface: ", type(self.player))
+        print("Connected! ProxyInterface: ", type(self.player))
+
+        # Subscribe to the on properties changed signal
+        self.properties.on_properties_changed(self.signal_change_callback)
 
         return self
 
@@ -49,17 +69,14 @@ class MPrisPlayer:
 
 
 async def main():
-    await asyncio.sleep(1)
     player = MPrisPlayer(BUS_NAME, OBJECT_PATH)
     await player.connect()
 
-    # await player.play_pause()
-    # await player.player.set_volume(0.1)
     volume = await player.player.get_volume()
-    print(volume)
-    hello = await player.get_metadata()
-    print("hi: ", hello)
-    print("FROMMM: ", player.metadata)
+    print("Volume: ", volume)
+    # hello = await player.get_metadata()
+    # print("\nMetadata1: ", hello)
+    # print("\nMetadata2: ", player.metadata)
 
     try:
         while True:
