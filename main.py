@@ -7,7 +7,7 @@ from dbus import MPrisPlayer
 from lastfm import Scrobbler
 
 load_dotenv()
-BUS_NAME = "org.mpris.MediaPlayer2.audacious"
+SERVICE_NAME = "org.mpris.MediaPlayer2.audacious"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
 API_KEY = os.getenv("LASTFM_API_KEY")
 API_SECRET = os.getenv("LASTFM_API_SECRET")
@@ -16,19 +16,28 @@ PASSWORD = os.getenv("LASTFM_PASSWORD")
 PASSWORD_HASH = pylast.md5(PASSWORD)
 
 
-async def main():
-    player = MPrisPlayer(BUS_NAME, OBJECT_PATH)
+async def catch_change(artist, track):
+    print(f"\nTracked Changed To:\n{track} - {artist}")
     scrobbler = Scrobbler(API_KEY, API_SECRET, USERNAME, PASSWORD_HASH)
-    await player.connect()
     await asyncio.to_thread(scrobbler.connect)
+    # Delay .scrobble call instead of invoking the function and passing that value
+    await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
+
+    return artist, track
+
+
+async def main():
+    player = MPrisPlayer(SERVICE_NAME, OBJECT_PATH, catch_change)
+    await player.connect()
 
     meta = await player.get_metadata()
-    print(meta)
+    print("\nPlayer Metadata: ", meta)
 
-    artist = "Iron Maiden"
-    title = "The Nomad"
-    # Delay .scrobble call instead of invoking the function and passing that value
-    await asyncio.to_thread(lambda: scrobbler.scrobble(artist, title))
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        pass
 
 
 if __name__ == "__main__":
