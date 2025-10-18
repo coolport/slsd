@@ -3,19 +3,29 @@ from dbus_next.aio import MessageBus
 
 # busctl --user list | grep mpris
 # busctl --user introspect org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2
+# GENERAL STRUCTURE OF DBUS - SERVICE - OBJECTS(typically 1, yung mprismp2 lang) - INTERFACES
+# Session Bus
+#  └── Service (bus name): org.mpris.MediaPlayer2.spotify
+#       └── Object path: /org/mpris/MediaPlayer2
+#            ├── Interface: org.mpris.MediaPlayer2
+#            ├── Interface: org.mpris.MediaPlayer2.Player
+#            └── Interface: org.freedesktop.DBus.Properties
 
 # TODO: exception handling, typing etc
 
 # BUS_NAME = "org.mpris.MediaPlayer2.spotify"
-BUS_NAME = "org.mpris.MediaPlayer2.audacious"
+DBUS_SERVICE_ADDRESS = "org.freedesktop.DBus"
+
+SERVICE_NAME = "org.mpris.MediaPlayer2.audacious"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
-PLAYER_PATH = "org.mpris.MediaPlayer2.Player"
-PROPERTY_PATH = "org.freedesktop.DBus.Properties"
+PLAYER_NAME = "org.mpris.MediaPlayer2.Player"
+
+PROPERTY_NAME = "org.freedesktop.DBus.Properties"
 
 
 class MPrisPlayer:
-    def __init__(self, bus_name, object_path, change_callback_function=None):
-        self.bus_name = bus_name
+    def __init__(self, service_name, object_path, change_callback_function=None):
+        self.bus_name = service_name
         self.object_path = object_path
         self.player = None
         self.bus = None
@@ -38,15 +48,19 @@ class MPrisPlayer:
             if self.change_callback_function is not None:
                 await self.change_callback_function(artist, track)
 
+    # async def get_mpris_services(self):
+    # self.dbusinterface = self.bus.get_interface(DBUS_ADDRESS)
+    # print(self.dbusinterface)
+
     async def connect(self):
         self.bus = await MessageBus().connect()
         self.introspection = await self.bus.introspect(self.bus_name, self.object_path)
         self.obj = self.bus.get_proxy_object(
             self.bus_name, self.object_path, self.introspection
         )
-        self.player = self.obj.get_interface(PLAYER_PATH)
-        self.properties = self.obj.get_interface(PROPERTY_PATH)
-        print("Connected! ProxyInterface: ", type(self.player))
+        self.player = self.obj.get_interface(PLAYER_NAME)
+        self.properties = self.obj.get_interface(PROPERTY_NAME)
+        print("DBus Connection Success\nProxyInterface: ", type(self.player))
 
         # Subscribe to the on properties changed signal
         self.properties.on_properties_changed(self.signal_change_callback)
@@ -56,6 +70,7 @@ class MPrisPlayer:
     async def get_metadata(self):
         metadata = await self.player.get_metadata()
         self.metadata = metadata
+
         return metadata
 
 
