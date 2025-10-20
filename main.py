@@ -8,7 +8,6 @@ from lastfm import Scrobbler
 
 load_dotenv()
 SERVICE_NAME = "org.mpris.MediaPlayer2.spotify"
-# SERVICE_NAME = "org.mpris.MediaPlayer2.audacious"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
 API_KEY = os.getenv("LASTFM_API_KEY")
 API_SECRET = os.getenv("LASTFM_API_SECRET")
@@ -20,7 +19,7 @@ DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
 
 
-async def catch_change(artist, track):
+async def catch_property_change(artist, track):
     print(f"\nTracked Changed To:\n{track} - {artist}")
     scrobbler = Scrobbler(
         API_KEY,
@@ -37,16 +36,18 @@ async def catch_change(artist, track):
     return artist, track
 
 
+async def catch_owner_change(x, y, z):
+    print(x, y, z)
+
+
 async def main():
-    service_manager = ServiceManager(DBUS_SERVICE_NAME, DBUS_OBJECT_PATH)
-    await service_manager.connect()
-    player = MPrisPlayer(
-        SERVICE_NAME,
-        OBJECT_PATH,
-        catch_change,
-        service_manager.bus,
+    service_manager = ServiceManager(
+        DBUS_SERVICE_NAME,
+        DBUS_OBJECT_PATH,
+        catch_property_change,
     )
-    await player.connect()
+    await service_manager.connect()
+    # await service_manager.create_player(SERVICE_NAME, catch_property_change)
 
     try:
         while True:
