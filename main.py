@@ -1,9 +1,8 @@
 import asyncio
-import pylast
+import hashlib
 import os
 from dotenv import load_dotenv
-from dbus_next.aio import MessageBus
-from dbus import MPrisPlayer, ServiceManager
+from dbus import ServiceManager
 from lastfm import Scrobbler
 
 load_dotenv()
@@ -13,7 +12,7 @@ API_KEY = os.getenv("LASTFM_API_KEY")
 API_SECRET = os.getenv("LASTFM_API_SECRET")
 USERNAME = os.getenv("LASTFM_USERNAME")
 PASSWORD = os.getenv("LASTFM_PASSWORD")
-PASSWORD_HASH = pylast.md5(PASSWORD)
+PASSWORD_HASH = hashlib.md5(PASSWORD.encode("utf-8")).hexdigest()
 
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
@@ -30,7 +29,7 @@ async def catch_property_change(artist, track):
 
     await asyncio.to_thread(scrobbler.connect)
     # Delay .scrobble call instead of invoking the function and passing that value
-    await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
+    # await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
     print(f"Scrobbled: {track} - {artist}")
 
     return artist, track
@@ -47,7 +46,6 @@ async def main():
         catch_property_change,
     )
     await service_manager.connect()
-    # await service_manager.create_player(SERVICE_NAME, catch_property_change)
 
     try:
         while True:
