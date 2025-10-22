@@ -2,25 +2,11 @@ import asyncio
 from pprint import pprint
 from dbus_next.aio import MessageBus
 
-# Session Bus
-#  └─Service (bus name): org.mpris.MediaPlayer2.spotify
-#       └── Object path: /org/mpris/MediaPlayer2
-#            ├── Interface: org.mpris.MediaPlayer2
-#            ├── Interface: org.mpris.MediaPlayer2.Player
-#            └── Interface: org.freedesktop.DBus.Properties
-# ── org.freedesktop.DBus
-#     ├── /org/freedesktop/DBus
-#     └── interface: org.freedesktop.DBus
-#          ├── method: ListNames()
-#          └── method: NameHasOwner()
-
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
 
-# PLAYER_SERVICE_NAME = "org.mpris.MediaPlayer2.spotify"
 MP2_OBJECT_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
-
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
 
 
@@ -60,13 +46,15 @@ class ServiceManager:
         print("Found MPRIS Players on connect: \n")
         for x in names:
             if x.startswith("org.mpris.MediaPlayer2."):
-                player = await self.create_player(x, self.property_signal_callback)
-                self.players.update({f"{x}": player})
+                # player = await self.create_player(x, self.property_signal_callback)
+                asyncio.create_task(
+                    self.create_player(x, self.property_signal_callback)
+                )
                 print(x)
 
         return self
 
-    async def owner_change_callback(self, name, old_owner, new_owner):
+    def owner_change_callback(self, name, old_owner, new_owner):
         if name.startswith("org.mpris.MediaPlayer2."):
             print(f"\nPlayer change: {name}, Old: {old_owner}, New: {new_owner}")
             if new_owner and not old_owner:
@@ -74,7 +62,6 @@ class ServiceManager:
                     self.create_player(name, self.property_signal_callback)
                 )
                 print(f"\nPlayer {name} found, adding to players[]")
-                self.players.update({f"{name}": player})
                 print("Current: ", self.players)
             elif old_owner and not new_owner:
                 print(f"\n{name} was closed. Removing from players[]")
@@ -116,15 +103,23 @@ class MPrisPlayer:
         invalidated_properties,
     ):
         if "Metadata" in changed_properties:
+            artist = None
+            track = None
+
             metadata_variant = changed_properties["Metadata"]
             metadata = metadata_variant.value
 
-            artist = metadata["xesam:artist"].value[0]
-            track = metadata["xesam:title"].value
+            meta_artist_variant = metadata.get("xesam:artist")
+            meta_track_variant = metadata.get("xesam:title")
 
-            if self.property_change_callback is not None:
-                await self.property_change_callback(artist, track)
-            return self
+            if meta_artist_variant and meta_artist_variant.value:
+                artist = meta_artist_variant.value[0]
+
+            if meta_track_variant:
+                track = meta_track_variant.value
+
+            if self.callback and artist and track:
+                await self.callback(artist, track)
 
     async def connect(self):
         bus = self.bus
@@ -142,8 +137,4 @@ class MPrisPlayer:
 
         self.properties.on_properties_changed(self.property_change_callback)
 
-    # async def get_metadata(self):
-    #     metadata = await self.player.get_metadata()
-    #     self.metadata = metadata
-    #
-    #     return metadata
+        return self
