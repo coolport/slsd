@@ -46,7 +46,6 @@ class ServiceManager:
         print("Found MPRIS Players on connect: \n")
         for x in names:
             if x.startswith("org.mpris.MediaPlayer2."):
-                # player = await self.create_player(x, self.property_signal_callback)
                 asyncio.create_task(
                     self.create_player(x, self.property_signal_callback)
                 )
@@ -94,7 +93,12 @@ class MPrisPlayer:
         self.object = None
         self.properties = None
         self.metadata = None
-        self.callback = callback  # set on instantiation
+
+        self.playback_status = None
+        self.current_artist = None
+        self.current_track = None
+
+        self.callback = callback
 
     async def property_change_callback(
         self,
@@ -103,23 +107,26 @@ class MPrisPlayer:
         invalidated_properties,
     ):
         if "Metadata" in changed_properties:
-            artist = None
-            track = None
-
             metadata_variant = changed_properties["Metadata"]
-            metadata = metadata_variant.value
+            self.metadata = metadata_variant.value
 
-            meta_artist_variant = metadata.get("xesam:artist")
-            meta_track_variant = metadata.get("xesam:title")
+            meta_artist_variant = self.metadata.get("xesam:artist")
+            meta_track_variant = self.metadata.get("xesam:title")
 
             if meta_artist_variant and meta_artist_variant.value:
-                artist = meta_artist_variant.value[0]
+                self.current_artist = meta_artist_variant.value[0]
 
             if meta_track_variant:
-                track = meta_track_variant.value
+                self.current_track = meta_track_variant.value
 
-            if self.callback and artist and track:
-                await self.callback(artist, track)
+        if "PlaybackStatus" in changed_properties:
+            playback_status_variant = changed_properties["PlaybackStatus"]
+            self.playback_status = playback_status_variant.value
+            print("Playback: ", self.playback_status)
+
+        if self.playback_status == "Playing":
+            if self.callback and self.current_artist and self.current_track:
+                await self.callback(self.current_artist, self.current_track)
 
     async def connect(self):
         bus = self.bus
@@ -135,6 +142,16 @@ class MPrisPlayer:
         self.player = self.object.get_interface(PLAYER_INTERFACE_NAME)
         self.properties = self.object.get_interface(PROPERTY_NAME)
 
+        # TODO: Refactor, duplicate logic with prop change callback - static method? idk
+        initial_properties = await self.properties.call_get_all(PLAYER_INTERFACE_NAME)
+        self.metadata = initial_properties.get("Metadata").value
+        self.playback_status = initial_properties.get("PlaybackStatus").value
+        self.current_track = self.metadata.get("xesam:title").value
+        self.current_artist = self.metadata.get("xesam:artist").value[0]
         self.properties.on_properties_changed(self.property_change_callback)
+
+        if self.playback_status == "Playing":
+            if self.callback and self.current_artist and self.current_track:
+                await self.callback(self.current_artist, self.current_track)
 
         return self
