@@ -6,8 +6,6 @@ from dbus import ServiceManager
 from lastfm import Scrobbler
 
 load_dotenv()
-SERVICE_NAME = "org.mpris.MediaPlayer2.spotify"
-OBJECT_PATH = "/org/mpris/MediaPlayer2"
 API_KEY = os.getenv("LASTFM_API_KEY")
 API_SECRET = os.getenv("LASTFM_API_SECRET")
 USERNAME = os.getenv("LASTFM_USERNAME")
@@ -30,13 +28,10 @@ async def catch_property_change(artist, track):
     await asyncio.to_thread(scrobbler.connect)
     # Delay .scrobble call instead of invoking the function and passing that value
     # await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
-    print(f"Scrobbled: {track} - {artist}")
-
+    print(
+        f"Scrobbled: {track} - {artist}"
+    )  # just to show when the scrobble will fire, because i dont want it to actually reflect in my account as im debugging
     return artist, track
-
-
-async def catch_owner_change(x, y, z):
-    print(x, y, z)
 
 
 async def main():
@@ -58,4 +53,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nExiting")
+        print("\nPress again to exit.")

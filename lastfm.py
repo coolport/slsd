@@ -1,14 +1,6 @@
 import pylast
 import os
 import time
-from dotenv import load_dotenv
-
-load_dotenv()
-API_KEY = os.getenv("LASTFM_API_KEY")
-API_SECRET = os.getenv("LASTFM_API_SECRET")
-USERNAME = os.getenv("LASTFM_USERNAME")
-PASSWORD = os.getenv("LASTFM_PASSWORD")
-PASSWORD_HASH = pylast.md5(PASSWORD)
 
 
 class Scrobbler:
@@ -33,18 +25,3 @@ class Scrobbler:
         title = title
         timestamp = int(time.time())
         self.network.scrobble(artist=artist, title=title, timestamp=timestamp)
-
-
-# async def main():
-#     scrobbler = Scrobbler(API_KEY, API_SECRET, USERNAME, PASSWORD_HASH)
-#     scrobbler.connect()
-#
-#     track = scrobbler.network.get_track("Iron Maiden", "The Nomad")
-#     track.unlove()
-#
-#     artist = "Iron Maiden"
-#     title = "The Nomad"
-#     await scrobbler.scrobble(artist, title)
-
-# if __name__ == "__main__":
-#     asyncio.run(main())
