@@ -46,9 +46,12 @@ class ServiceManager:
         print("Found MPRIS Players on connect: \n")
         for x in names:
             if x.startswith("org.mpris.MediaPlayer2."):
-                asyncio.create_task(
-                    self.create_player(x, self.property_signal_callback)
-                )
+                if x not in self.players:
+                    asyncio.create_task(
+                        self.create_player(x, self.property_signal_callback)
+                    )
+                else:
+                    print("Skipping: ", x, " already in dict.")
                 print(x)
 
         return self
@@ -57,9 +60,12 @@ class ServiceManager:
         if name.startswith("org.mpris.MediaPlayer2."):
             print(f"\nPlayer change: {name}, Old: {old_owner}, New: {new_owner}")
             if new_owner and not old_owner:
-                asyncio.create_task(
-                    self.create_player(name, self.property_signal_callback)
-                )
+                if name not in self.players:
+                    asyncio.create_task(
+                        self.create_player(name, self.property_signal_callback)
+                    )
+                else:
+                    print("Skipping: ", name, " already in dict.")
                 print(f"\nPlayer {name} found, adding to players[]")
                 print("Current: ", self.players)
             elif old_owner and not new_owner:
@@ -69,18 +75,19 @@ class ServiceManager:
         return self
 
     async def create_player(self, player_name, property_signal_callback):
-        player = MPrisPlayer(
-            player_name,
-            MP2_OBJECT_PATH,
-            property_signal_callback,
-            self.bus,
-        )
-        await player.connect()
-        self.players.update({f"{player_name}": player})
-        print("\nUpdated players{}")
-        print(self.players)
+        if player_name not in self.players:
+            player = MPrisPlayer(
+                player_name,
+                MP2_OBJECT_PATH,
+                property_signal_callback,
+                self.bus,
+            )
+            await player.connect()
+            self.players.update({f"{player_name}": player})
+            print("\nUpdated players{}")
+            print(self.players)
 
-        return self
+            return self
 
 
 class MPrisPlayer:
@@ -97,6 +104,7 @@ class MPrisPlayer:
         self.playback_status = None
         self.current_artist = None
         self.current_track = None
+        self.previous_track = None
 
         self.callback = callback
 
@@ -124,9 +132,14 @@ class MPrisPlayer:
             self.playback_status = playback_status_variant.value
             print("Playback: ", self.playback_status)
 
+        await self._validate_scrobbler()
+
+    async def _validate_scrobbler(self):
         if self.playback_status == "Playing":
             if self.callback and self.current_artist and self.current_track:
-                await self.callback(self.current_artist, self.current_track)
+                if self.current_track != self.previous_track:
+                    await self.callback(self.current_artist, self.current_track)
+                    self.previous_track = self.current_track
 
     async def connect(self):
         bus = self.bus
@@ -142,16 +155,24 @@ class MPrisPlayer:
         self.player = self.object.get_interface(PLAYER_INTERFACE_NAME)
         self.properties = self.object.get_interface(PROPERTY_NAME)
 
-        # TODO: Refactor, duplicate logic with prop change callback - static method? idk
         initial_properties = await self.properties.call_get_all(PLAYER_INTERFACE_NAME)
-        self.metadata = initial_properties.get("Metadata").value
-        self.playback_status = initial_properties.get("PlaybackStatus").value
-        self.current_track = self.metadata.get("xesam:title").value
-        self.current_artist = self.metadata.get("xesam:artist").value[0]
+
+        metadata_variant = initial_properties.get("Metadata")
+        if metadata_variant:
+            self.metadata = metadata_variant.value
+            meta_artist_variant = self.metadata.get("xesam:artist")
+            meta_track_variant = self.metadata.get("xesam:title")
+            if meta_artist_variant and meta_artist_variant.value:
+                self.current_artist = meta_artist_variant.value[0]
+            if meta_track_variant:
+                self.current_track = meta_track_variant.value
+
+        status_variant = initial_properties.get("PlaybackStatus")
+        if status_variant:
+            self.playback_status = status_variant.value
+
         self.properties.on_properties_changed(self.property_change_callback)
 
-        if self.playback_status == "Playing":
-            if self.callback and self.current_artist and self.current_track:
-                await self.callback(self.current_artist, self.current_track)
+        await self._validate_scrobbler()
 
         return self
