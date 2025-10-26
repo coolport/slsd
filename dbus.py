@@ -10,6 +10,9 @@ PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
 
 
+WHITELIST = ["playerctld"]
+
+
 class ServiceManager:
     def __init__(self, dbus_service_name, dbus_object_path, property_signal_callback):
         self.players = {}
@@ -44,15 +47,17 @@ class ServiceManager:
 
         names = await self.interface.call_list_names()
         print("Found MPRIS Players on connect: \n")
-        for x in names:
-            if x.startswith("org.mpris.MediaPlayer2."):
-                if x not in self.players:
+        for name in names:
+            if name in WHITELIST:
+                return
+            if name.startswith("org.mpris.MediaPlayer2."):
+                if name not in self.players:
                     asyncio.create_task(
-                        self.create_player(x, self.property_signal_callback)
+                        self.create_player(name, self.property_signal_callback)
                     )
                 else:
-                    print("Skipping: ", x, " already in dict.")
-                print(x)
+                    print("Skipping: ", name, " already in dict.")
+                print(name)
 
         return self
 
@@ -70,7 +75,7 @@ class ServiceManager:
                 print("Current: ", self.players)
             elif old_owner and not new_owner:
                 print(f"\n{name} was closed. Removing from players[]")
-                self.players.pop(f"{name}")
+                self.players.pop(f"{name}", None)
                 print("Current: ", self.players)
         return self
 
@@ -87,7 +92,7 @@ class ServiceManager:
             print("\nUpdated players{}")
             print(self.players)
 
-            return self
+            # return self
 
 
 class MPrisPlayer:
@@ -108,31 +113,34 @@ class MPrisPlayer:
 
         self.callback = callback
 
+        self._lock = asyncio.Lock()
+
     async def property_change_callback(
         self,
         interface_name,
         changed_properties,
         invalidated_properties,
     ):
-        if "Metadata" in changed_properties:
-            metadata_variant = changed_properties["Metadata"]
-            self.metadata = metadata_variant.value
+        async with self._lock:
+            if "Metadata" in changed_properties:
+                metadata_variant = changed_properties["Metadata"]
+                self.metadata = metadata_variant.value
 
-            meta_artist_variant = self.metadata.get("xesam:artist")
-            meta_track_variant = self.metadata.get("xesam:title")
+                meta_artist_variant = self.metadata.get("xesam:artist")
+                meta_track_variant = self.metadata.get("xesam:title")
 
-            if meta_artist_variant and meta_artist_variant.value:
-                self.current_artist = meta_artist_variant.value[0]
+                if meta_artist_variant and meta_artist_variant.value:
+                    self.current_artist = meta_artist_variant.value[0]
 
-            if meta_track_variant:
-                self.current_track = meta_track_variant.value
+                if meta_track_variant:
+                    self.current_track = meta_track_variant.value
 
-        if "PlaybackStatus" in changed_properties:
-            playback_status_variant = changed_properties["PlaybackStatus"]
-            self.playback_status = playback_status_variant.value
-            print("Playback: ", self.playback_status)
+            if "PlaybackStatus" in changed_properties:
+                playback_status_variant = changed_properties["PlaybackStatus"]
+                self.playback_status = playback_status_variant.value
+                print("Playback: ", self.playback_status)
 
-        await self._validate_scrobbler()
+            await self._validate_scrobbler()
 
     async def _validate_scrobbler(self):
         if self.playback_status == "Playing":
