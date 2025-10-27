@@ -10,11 +10,11 @@ MP2_OBJECT_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
 
-WHITELIST = ["playerctld"]
-
 
 class ServiceManager:
-    def __init__(self, dbus_service_name, dbus_object_path, property_signal_callback):
+    def __init__(
+        self, dbus_service_name, dbus_object_path, property_signal_callback, blacklist
+    ):
         self.players = {}
         self.service_name = dbus_service_name
         self.object_path = dbus_object_path
@@ -24,6 +24,8 @@ class ServiceManager:
         self.properties = None
         self.interface = None
         self.property_signal_callback = property_signal_callback
+
+        self.blacklist = blacklist
 
     async def connect(self):
         try:
@@ -45,12 +47,13 @@ class ServiceManager:
 
         self.interface.on_name_owner_changed(self.owner_change_callback)
 
-        names = await self.interface.call_list_names()
-        print("Found MPRIS Players on connect: \n")
-        for name in names:
+        service_names = await self.interface.call_list_names()
+        print("Active MPRIS Players on connect: \n")
+        for name in service_names:
             if name.startswith("org.mpris.MediaPlayer2."):
-                if WHITELIST[0] in name:
+                if self.blacklist and any(item in name for item in self.blacklist):
                     continue
+
                 if name not in self.players:
                     asyncio.create_task(
                         self.create_player(name, self.property_signal_callback)
@@ -64,7 +67,10 @@ class ServiceManager:
     def owner_change_callback(self, name, old_owner, new_owner):
         if name.startswith("org.mpris.MediaPlayer2."):
             print(f"\nPlayer change: {name}, Old: {old_owner}, New: {new_owner}")
+
             if new_owner and not old_owner:
+                if self.blacklist and any(item in name for item in self.blacklist):
+                    return
                 if name not in self.players:
                     asyncio.create_task(
                         self.create_player(name, self.property_signal_callback)
@@ -72,7 +78,7 @@ class ServiceManager:
                 else:
                     print("Skipping: ", name, " already in dict.")
                 print(f"\nPlayer {name} found, adding to players[]")
-                print("Current: ", self.players)
+
             elif old_owner and not new_owner:
                 print(f"\n{name} was closed. Removing from players[]")
                 player = self.players.pop(name, None)
