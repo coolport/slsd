@@ -1,6 +1,7 @@
 import asyncio
 from pprint import pprint
 from dbus_next.aio import MessageBus
+from dbus_next.errors import DBusError
 
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
@@ -8,6 +9,8 @@ DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
 MP2_OBJECT_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
+
+WHITELIST = ["playerctld"]
 
 
 class ServiceManager:
@@ -25,7 +28,7 @@ class ServiceManager:
     async def connect(self):
         try:
             self.bus = await MessageBus().connect()
-        except e:
+        except Exception as e:
             print("Failed: ", e)
 
         print("DBus Connection Succesful")
@@ -44,15 +47,17 @@ class ServiceManager:
 
         names = await self.interface.call_list_names()
         print("Found MPRIS Players on connect: \n")
-        for x in names:
-            if x.startswith("org.mpris.MediaPlayer2."):
-                if x not in self.players:
+        for name in names:
+            if name.startswith("org.mpris.MediaPlayer2."):
+                if WHITELIST[0] in name:
+                    continue
+                if name not in self.players:
                     asyncio.create_task(
-                        self.create_player(x, self.property_signal_callback)
+                        self.create_player(name, self.property_signal_callback)
                     )
                 else:
-                    print("Skipping: ", x, " already in dict.")
-                print(x)
+                    print("Skipping: ", name, " already in dict.")
+                print(name)
 
         return self
 
@@ -70,24 +75,29 @@ class ServiceManager:
                 print("Current: ", self.players)
             elif old_owner and not new_owner:
                 print(f"\n{name} was closed. Removing from players[]")
-                self.players.pop(f"{name}")
+                player = self.players.pop(name, None)
+                if player:
+                    player.disconnect()
                 print("Current: ", self.players)
         return self
 
     async def create_player(self, player_name, property_signal_callback):
         if player_name not in self.players:
-            player = MPrisPlayer(
-                player_name,
-                MP2_OBJECT_PATH,
-                property_signal_callback,
-                self.bus,
-            )
-            await player.connect()
-            self.players.update({f"{player_name}": player})
-            print("\nUpdated players{}")
-            print(self.players)
+            try:
+                player = MPrisPlayer(
+                    player_name,
+                    MP2_OBJECT_PATH,
+                    property_signal_callback,
+                    self.bus,
+                )
+                await player.connect()
+                self.players.update({f"{player_name}": player})
+                print("\nUpdated players{}")
+                print(self.players)
+            except DBusError as e:
+                print(f"Cant connect to player {player_name}: {e}")
 
-            return self
+        return self
 
 
 class MPrisPlayer:
@@ -176,3 +186,10 @@ class MPrisPlayer:
         await self._validate_scrobbler()
 
         return self
+
+    def disconnect(self):
+        try:
+            if self.properties:
+                self.properties.off_properties_changed(self.property_change_callback)
+        except Exception as e:
+            print(f"Error disconnecting player {self.service_name}: {e}")
