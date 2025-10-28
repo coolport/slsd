@@ -1,16 +1,21 @@
 [project]
 name = "slsd"
-version = "0.0.1"
+version = "0.1.0"
 description = "Simple Last.fm Scrobbling Daemon"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-  "dbus-next>=0.2.3",
-  "pylast>=5.5.0",
-  "pytest>=8.4.2",
-  "python-dotenv>=1.1.1",
+dependencies = ["dbus-next>=0.2.3", "pylast>=5.5.0", "pytest>=8.4.2"]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
 ]
 
 [build-system]
 requires = ["uv_build >= 0.9.5, <0.10.0"]
 build-backend = "uv_build"
+
+[project.urls]
+Homepage = "https://github.com/coolport/slsd"
