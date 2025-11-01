@@ -1,5 +1,4 @@
 import asyncio
-from pprint import pprint
 from dbus_next.aio import MessageBus
 from dbus_next.errors import DBusError
 
@@ -16,15 +15,14 @@ class ServiceManager:
         self, dbus_service_name, dbus_object_path, property_signal_callback, blacklist
     ):
         self.players = {}
-        self.service_name = dbus_service_name
-        self.object_path = dbus_object_path
         self.bus = None
         self.object = None
         self.introspection = None
         self.properties = None
         self.interface = None
+        self.service_name = dbus_service_name
+        self.object_path = dbus_object_path
         self.property_signal_callback = property_signal_callback
-
         self.blacklist = blacklist
 
     async def connect(self):
@@ -33,7 +31,7 @@ class ServiceManager:
         except Exception as e:
             print("Failed: ", e)
 
-        print("DBus Connection Succesful")
+        print("DBus Connection Succesful!")
         self.introspection = await self.bus.introspect(
             self.service_name,
             self.object_path,
@@ -83,7 +81,13 @@ class ServiceManager:
                 print(f"\n{name} was closed. Removing from players[]")
                 player = self.players.pop(name, None)
                 if player:
-                    player.disconnect()
+                    try:
+                        if self.properties:
+                            self.properties.off_properties_changed(
+                                self.property_change_callback
+                            )
+                    except Exception as e:
+                        print(f"Error disconnecting player {self.service_name}: {e}")
                 print("Current: ", self.players)
         return self
 
@@ -98,7 +102,7 @@ class ServiceManager:
                 )
                 await player.connect()
                 self.players.update({f"{player_name}": player})
-                print("\nUpdated players{}")
+                print("\nUpdated players: ")
                 print(self.players)
             except DBusError as e:
                 print(f"Cant connect to player {player_name}: {e}")
@@ -119,10 +123,29 @@ class MPrisPlayer:
 
         self.playback_status = None
         self.current_artist = None
-        self.current_track = None
-        self.previous_track = None
+
+        self.current_title = None
+
+        self.current_track = {"artist": None, "title": None}
+        self.previous_track = {"artist": None, "title": None}
+
+        # self.previous_track = None
 
         self.callback = callback
+
+    def update_current_track(self):
+        self.current_track = {
+            "artist": self.current_artist,
+            "title": self.current_title,
+        }
+        return self
+
+    # def update_previous_track(self):
+    #     self.previous_track = {
+    #         "artist": self.current_artist,
+    #         "title": self.current_title,
+    #     }
+    #     return self
 
     async def property_change_callback(
         self,
@@ -141,21 +164,25 @@ class MPrisPlayer:
                 self.current_artist = meta_artist_variant.value[0]
 
             if meta_track_variant:
-                self.current_track = meta_track_variant.value
+                self.current_title = meta_track_variant.value
+
+            if self.current_artist and self.current_title:
+                self.update_current_track()
 
         if "PlaybackStatus" in changed_properties:
             playback_status_variant = changed_properties["PlaybackStatus"]
             self.playback_status = playback_status_variant.value
-            print("Playback: ", self.playback_status)
+            print("# Playback: ", self.playback_status)
 
         await self._validate_scrobbler()
 
     async def _validate_scrobbler(self):
         if self.playback_status == "Playing":
-            if self.callback and self.current_artist and self.current_track:
+            if self.callback and self.current_artist and self.current_title:
                 if self.current_track != self.previous_track:
-                    await self.callback(self.current_artist, self.current_track)
+                    await self.callback(self.current_artist, self.current_title)
                     self.previous_track = self.current_track
+                    print("New previous track: ", self.previous_track)
 
     async def connect(self):
         bus = self.bus
@@ -168,6 +195,7 @@ class MPrisPlayer:
             self.object_path,
             self.introspection,
         )
+
         self.player = self.object.get_interface(PLAYER_INTERFACE_NAME)
         self.properties = self.object.get_interface(PROPERTY_NAME)
 
@@ -178,24 +206,24 @@ class MPrisPlayer:
             self.metadata = metadata_variant.value
             meta_artist_variant = self.metadata.get("xesam:artist")
             meta_track_variant = self.metadata.get("xesam:title")
+
             if meta_artist_variant and meta_artist_variant.value:
                 self.current_artist = meta_artist_variant.value[0]
             if meta_track_variant:
-                self.current_track = meta_track_variant.value
+                self.current_title = meta_track_variant.value
+            if self.current_artist and self.current_title:
+                self.update_current_track()
+                self.previous_track = self.current_track
+
+            print(
+                f"current_track on connnect: {self.current_title} - {self.current_artist}"
+            )
+            print(f"prev: {self.previous_track}")
 
         status_variant = initial_properties.get("PlaybackStatus")
         if status_variant:
             self.playback_status = status_variant.value
 
         self.properties.on_properties_changed(self.property_change_callback)
-
         await self._validate_scrobbler()
-
         return self
-
-    def disconnect(self):
-        try:
-            if self.properties:
-                self.properties.off_properties_changed(self.property_change_callback)
-        except Exception as e:
-            print(f"Error disconnecting player {self.service_name}: {e}")
