@@ -12,6 +12,7 @@ DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
 CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
 CONFIG_FILE = CONFIG_HOME / "slsd" / "config.toml"
 
+# TODO: exception handlingzz
 try:
     with open(CONFIG_FILE, "rb") as config:
         config_data = tomllib.load(config)
@@ -25,25 +26,28 @@ try:
 except Exception as e:
     print("Failed: ", e)
 
+try:
+    scrobbler = Scrobbler(
+        API_KEY,
+        API_SECRET,
+        USERNAME,
+        PASSWORD_HASH,
+    )
+except Exception as e:
+    print("Failed to instantiate scrobbler object", e)
+
 
 async def catch_property_change(artist, track):
-    print(f"\nTracked Changed To:\n{track} - {artist}")
-    try:
-        scrobbler = Scrobbler(
-            API_KEY,
-            API_SECRET,
-            USERNAME,
-            PASSWORD_HASH,
-        )
-    except Exception as e:
-        print("Failed to connect: ", e)
+    print(f"\nTracked Changed To: {track} - {artist}")
 
-    await asyncio.to_thread(scrobbler.connect)
+    try:
+        await asyncio.to_thread(scrobbler.connect)
+    except Exception as e:
+        print("Failed to connect to scrobbler, incorrect credentials?: ", e)
+
     # Delay .scrobble call instead of invoking the function and passing that value
     # await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
-    print(
-        f"Scrobbled: {track} - {artist}"
-    )  # just to show when the scrobble will fire, because i dont want it to actually reflect in my account as im debugging
+    print(f"Scrobbled: {track} - {artist}")
     return artist, track
 
 
