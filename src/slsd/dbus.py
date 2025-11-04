@@ -80,14 +80,13 @@ class ServiceManager:
             elif old_owner and not new_owner:
                 print(f"\n{name} was closed. Removing from players[]")
                 player = self.players.pop(name, None)
-                if player:
+                if player and player.properties:
                     try:
-                        if self.properties:
-                            self.properties.off_properties_changed(
-                                self.property_change_callback
-                            )
+                        player.properties.off_properties_changed(
+                            player.property_change_callback
+                        )
                     except Exception as e:
-                        print(f"Error disconnecting player {self.service_name}: {e}")
+                        print(f"Error disconnecting player {player.service_name}: {e}")
                 print("Current: ", self.players)
         return self
 
@@ -114,8 +113,10 @@ class MPrisPlayer:
     def __init__(self, service_name, object_path, callback=None, bus=None):
         self.service_name = service_name
         self.object_path = object_path
-        self.player = None
+        self.callback = callback
         self.bus = bus
+
+        self.player = None
         self.introspection = None
         self.object = None
         self.properties = None
@@ -123,15 +124,14 @@ class MPrisPlayer:
 
         self.playback_status = None
         self.current_artist = None
-
         self.current_title = None
 
         self.current_track = {"artist": None, "title": None}
         self.previous_track = {"artist": None, "title": None}
 
-        # self.previous_track = None
-
-        self.callback = callback
+        self.track_timestamp = None
+        self.track_length = None
+        self.elapsed_time = None
 
     def update_current_track(self):
         self.current_track = {
@@ -139,13 +139,6 @@ class MPrisPlayer:
             "title": self.current_title,
         }
         return self
-
-    # def update_previous_track(self):
-    #     self.previous_track = {
-    #         "artist": self.current_artist,
-    #         "title": self.current_title,
-    #     }
-    #     return self
 
     async def property_change_callback(
         self,
@@ -159,11 +152,14 @@ class MPrisPlayer:
 
             meta_artist_variant = self.metadata.get("xesam:artist")
             meta_track_variant = self.metadata.get("xesam:title")
+            holder = self.current_track.copy()
 
             if meta_artist_variant and meta_artist_variant.value:
+                self.previous_track = holder
                 self.current_artist = meta_artist_variant.value[0]
 
             if meta_track_variant:
+                self.previous_track = holder
                 self.current_title = meta_track_variant.value
 
             if self.current_artist and self.current_title:
@@ -177,11 +173,20 @@ class MPrisPlayer:
         await self._validate_scrobbler()
 
     async def _validate_scrobbler(self):
+        print("\nself.current_track: ", self.current_track)
         if self.playback_status == "Playing":
             if self.callback and self.current_artist and self.current_title:
+                print(f"Track Switched: {self.current_title} - {self.current_artist}")
                 if self.current_track != self.previous_track:
-                    await self.callback(self.current_artist, self.current_title)
-                    self.previous_track = self.current_track
+                    if (
+                        self.previous_track["artist"]
+                        and self.previous_track["title"] is not None
+                    ):
+                        await self.callback(
+                            self.previous_track["artist"],
+                            self.previous_track["title"],
+                        )
+                    # self.previous_track = self.current_track.copy()
                     print("New previous track: ", self.previous_track)
 
     async def connect(self):
@@ -213,7 +218,7 @@ class MPrisPlayer:
                 self.current_title = meta_track_variant.value
             if self.current_artist and self.current_title:
                 self.update_current_track()
-                self.previous_track = self.current_track
+                # self.previous_track = self.current_track.copy()
 
             print(
                 f"current_track on connnect: {self.current_title} - {self.current_artist}"

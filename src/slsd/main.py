@@ -38,8 +38,6 @@ except Exception as e:
 
 
 async def catch_property_change(artist, track):
-    print(f"\nTracked Changed To: {track} - {artist}")
-
     try:
         await asyncio.to_thread(scrobbler.connect)
     except Exception as e:
