@@ -133,6 +133,8 @@ class MPrisPlayer:
         self.track_length = None
         self.elapsed_time = None
 
+        self.lock = asyncio.Lock()
+
     def update_current_track(self):
         self.current_track = {
             "artist": self.current_artist,
@@ -173,21 +175,25 @@ class MPrisPlayer:
         await self._validate_scrobbler()
 
     async def _validate_scrobbler(self):
-        print("\nself.current_track: ", self.current_track)
-        if self.playback_status == "Playing":
-            if self.callback and self.current_artist and self.current_title:
-                print(f"Track Switched: {self.current_title} - {self.current_artist}")
-                if self.current_track != self.previous_track:
-                    if (
-                        self.previous_track["artist"]
-                        and self.previous_track["title"] is not None
-                    ):
-                        await self.callback(
-                            self.previous_track["artist"],
-                            self.previous_track["title"],
-                        )
-                    # self.previous_track = self.current_track.copy()
-                    print("New previous track: ", self.previous_track)
+        async with self.lock:
+            print("\nself.current_track: ", self.current_track)
+            # TODO: logical error where pause and unpausing runs this while block, can scrobble same song multiple times
+            # by just pause and play. Could be fixed naturally with the threshhold logic.
+            if self.playback_status == "Playing":
+                if self.callback and self.current_artist and self.current_title:
+                    print(
+                        f"Track Switched: {self.current_title} - {self.current_artist}"
+                    )
+                    if self.current_track != self.previous_track:
+                        if (
+                            self.previous_track["artist"]
+                            and self.previous_track["title"] is not None
+                        ):
+                            await self.callback(
+                                self.previous_track["artist"],
+                                self.previous_track["title"],
+                            )
+                        print("New previous track: ", self.previous_track)
 
     async def connect(self):
         bus = self.bus
