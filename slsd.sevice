@@ -1,0 +1,12 @@
+[Unit]
+Description=Simple Last.fm Scrobbling Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/aidan/projects/ssd/.venv/bin/python3 /home/aidan/projects/ssd/main.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
