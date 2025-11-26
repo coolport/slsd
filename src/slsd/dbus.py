@@ -2,12 +2,28 @@ import asyncio
 from dbus_next.aio import MessageBus
 from dbus_next.errors import DBusError
 
+
+import tomllib
+import os
+from pathlib import Path
+
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
 
 MP2_OBJECT_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
+
+CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+CONFIG_FILE = CONFIG_HOME / "slsd" / "config.toml"
+
+try:
+    with open(CONFIG_FILE, "rb") as config:
+        config_data = tomllib.load(config)
+    if config_data:
+        THRESHOLD = config_data.get("options").get("threshold")
+except Exception as e:
+    print("Failed: ", e)
 
 
 class ServiceManager:
@@ -131,7 +147,11 @@ class MPrisPlayer:
 
         self.track_timestamp = None
         self.track_length = None
+
+        self.scrobble_task = None
         self.elapsed_time = None
+
+        self.scrobble_satisfied = None
 
         self.lock = asyncio.Lock()
 
@@ -142,6 +162,35 @@ class MPrisPlayer:
         }
         return self
 
+    async def base_threshold(self):
+        asyncio.sleep(THRESHOLD)
+        print("yeah")
+
+    async def _validate_scrobbler(self):
+        async with self.lock:
+            print("\nself.current_track: ", self.current_track)
+            # TODO: logical error where pause and unpausing runs this while block, can scrobble same song multiple times
+            # by just pause and play. Could be fixed naturally with the threshhold logic.
+            if self.playback_status == "Playing":
+                if self.callback and self.current_artist and self.current_title:
+                    print(
+                        f"Track Switched: {self.current_title} - {self.current_artist}"
+                    )
+                    print("New track length(s): ", self.track_length / 1000000)
+
+                    if self.current_track != self.previous_track:
+                        # scrobble_task = asyncio.create_task(asyncio.sleep(5))
+                        # await scrobble_task
+                        if (
+                            self.previous_track["artist"]
+                            and self.previous_track["title"] is not None
+                        ):
+                            await self.callback(
+                                self.previous_track["artist"],
+                                self.previous_track["title"],
+                            )
+                        # print("New previous track: ", self.previous_track)
+
     async def property_change_callback(
         self,
         interface_name,
@@ -151,6 +200,9 @@ class MPrisPlayer:
         if "Metadata" in changed_properties:
             metadata_variant = changed_properties["Metadata"]
             self.metadata = metadata_variant.value
+
+            meta_length = self.metadata.get("mpris:length")
+            self.track_length = meta_length.value
 
             meta_artist_variant = self.metadata.get("xesam:artist")
             meta_track_variant = self.metadata.get("xesam:title")
@@ -172,28 +224,11 @@ class MPrisPlayer:
             self.playback_status = playback_status_variant.value
             print("# Playback: ", self.playback_status)
 
+        # asyncio.create_task(base_threshold)
+        self.base_threshold()
         await self._validate_scrobbler()
 
-    async def _validate_scrobbler(self):
-        async with self.lock:
-            print("\nself.current_track: ", self.current_track)
-            # TODO: logical error where pause and unpausing runs this while block, can scrobble same song multiple times
-            # by just pause and play. Could be fixed naturally with the threshhold logic.
-            if self.playback_status == "Playing":
-                if self.callback and self.current_artist and self.current_title:
-                    print(
-                        f"Track Switched: {self.current_title} - {self.current_artist}"
-                    )
-                    if self.current_track != self.previous_track:
-                        if (
-                            self.previous_track["artist"]
-                            and self.previous_track["title"] is not None
-                        ):
-                            await self.callback(
-                                self.previous_track["artist"],
-                                self.previous_track["title"],
-                            )
-                        print("New previous track: ", self.previous_track)
+        # TODO: re threshold logic, first do baseline 30s threshhold, ocne everything works etc only then should u implement timestamp-related logic
 
     async def connect(self):
         bus = self.bus
@@ -212,11 +247,16 @@ class MPrisPlayer:
 
         initial_properties = await self.properties.call_get_all(PLAYER_INTERFACE_NAME)
 
+        # TODO: REFACTOR
+        # duplicate logic from proprety change callback, refactor
         metadata_variant = initial_properties.get("Metadata")
         if metadata_variant:
             self.metadata = metadata_variant.value
             meta_artist_variant = self.metadata.get("xesam:artist")
             meta_track_variant = self.metadata.get("xesam:title")
+
+            meta_length = self.metadata.get("mpris:length")
+            self.track_length = meta_length.value
 
             if meta_artist_variant and meta_artist_variant.value:
                 self.current_artist = meta_artist_variant.value[0]
