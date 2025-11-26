@@ -1,37 +1,18 @@
 import asyncio
-import hashlib
-import tomllib
-import os
-from pathlib import Path
+from slsd import config
+
 from dbus import ServiceManager
 from lastfm import Scrobbler
 
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
 
-CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-CONFIG_FILE = CONFIG_HOME / "slsd" / "config.toml"
-
-# TODO: exception handlingzz
-try:
-    with open(CONFIG_FILE, "rb") as config:
-        config_data = tomllib.load(config)
-    if config_data:
-        USERNAME = config_data.get("credentials").get("username")
-        PASSWORD = config_data.get("credentials").get("password")
-        API_KEY = config_data.get("credentials").get("api_key")
-        API_SECRET = config_data.get("credentials").get("api_secret")
-        PASSWORD_HASH = hashlib.md5(PASSWORD.encode("utf-8")).hexdigest()
-        BLACKLIST = config_data.get("options").get("blacklist")
-except Exception as e:
-    print("Failed: ", e)
-
 try:
     scrobbler = Scrobbler(
-        API_KEY,
-        API_SECRET,
-        USERNAME,
-        PASSWORD_HASH,
+        config.API_KEY,
+        config.API_SECRET,
+        config.USERNAME,
+        config.PASSWORD_HASH,
     )
 except Exception as e:
     print("Failed to instantiate scrobbler object", e)
@@ -54,7 +35,7 @@ async def main():
         DBUS_SERVICE_NAME,
         DBUS_OBJECT_PATH,
         catch_property_change,
-        BLACKLIST,
+        config.BLACKLIST,
     )
     await service_manager.connect()
 

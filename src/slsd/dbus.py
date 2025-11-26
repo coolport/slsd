@@ -2,10 +2,7 @@ import asyncio
 from dbus_next.aio import MessageBus
 from dbus_next.errors import DBusError
 
-
-import tomllib
-import os
-from pathlib import Path
+from slsd import config
 
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
@@ -13,17 +10,6 @@ DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
 MP2_OBJECT_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
-
-CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-CONFIG_FILE = CONFIG_HOME / "slsd" / "config.toml"
-
-try:
-    with open(CONFIG_FILE, "rb") as config:
-        config_data = tomllib.load(config)
-    if config_data:
-        THRESHOLD = config_data.get("options").get("threshold")
-except Exception as e:
-    print("Failed: ", e)
 
 
 class ServiceManager:
@@ -163,7 +149,7 @@ class MPrisPlayer:
         return self
 
     async def base_threshold(self):
-        asyncio.sleep(THRESHOLD)
+        asyncio.sleep(config.THRESHOLD)
         print("yeah")
 
     async def _validate_scrobbler(self):
