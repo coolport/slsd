@@ -12,6 +12,7 @@ PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
 
 
+# TODO: actual proper logging
 class ServiceManager:
     def __init__(
         self, dbus_service_name, dbus_object_path, property_signal_callback, blacklist
@@ -89,6 +90,7 @@ class ServiceManager:
                         )
                     except Exception as e:
                         print(f"Error disconnecting player {player.service_name}: {e}")
+
                 print("Current: ", self.players)
         return self
 
@@ -129,17 +131,10 @@ class MPrisPlayer:
         self.current_title = None
 
         self.current_track = {"artist": None, "title": None}
-        self.previous_track = {"artist": None, "title": None}
 
-        self.track_timestamp = None
-        self.track_length = None
-
+        self.track_length = 0
         self.scrobble_task = None
-        self.elapsed_time = None
-
-        self.scrobble_satisfied = None
-
-        self.lock = asyncio.Lock()
+        self.scrobbled = False
 
     def update_current_track(self):
         self.current_track = {
@@ -148,73 +143,85 @@ class MPrisPlayer:
         }
         return self
 
-    async def base_threshold(self):
-        asyncio.sleep(config.THRESHOLD)
-        print("yeah")
+    async def _scrobble_after_delay(self, delay):
+        try:
+            print(f"Scrobbling '{self.current_title}' in {delay:.2f} seconds...")
+            await asyncio.sleep(delay)
 
-    async def _validate_scrobbler(self):
-        async with self.lock:
-            print("\nself.current_track: ", self.current_track)
-            # TODO: logical error where pause and unpausing runs this while block, can scrobble same song multiple times
-            # by just pause and play. Could be fixed naturally with the threshhold logic.
-            if self.playback_status == "Playing":
-                if self.callback and self.current_artist and self.current_title:
-                    print(
-                        f"Track Switched: {self.current_title} - {self.current_artist}"
-                    )
-                    print("New track length(s): ", self.track_length / 1000000)
+            print(f"Scrobbled: {self.current_title} - {self.current_artist}")
+            await self.callback(self.current_artist, self.current_title)
+            self.scrobbled = True
+            self.scrobble_task = None
+        except asyncio.CancelledError:
+            print(f"Scrobble for '{self.current_title}' was cancelled.")
 
-                    if self.current_track != self.previous_track:
-                        # scrobble_task = asyncio.create_task(asyncio.sleep(5))
-                        # await scrobble_task
-                        if (
-                            self.previous_track["artist"]
-                            and self.previous_track["title"] is not None
-                        ):
-                            await self.callback(
-                                self.previous_track["artist"],
-                                self.previous_track["title"],
-                            )
-                        # print("New previous track: ", self.previous_track)
-
+    # TODO: handle repeating songs
     async def property_change_callback(
         self,
         interface_name,
         changed_properties,
         invalidated_properties,
     ):
+        if not changed_properties:
+            return
+
         if "Metadata" in changed_properties:
-            metadata_variant = changed_properties["Metadata"]
+            if self.scrobble_task:
+                self.scrobble_task.cancel()
+                self.scrobble_task = None
+
+            self.scrobbled = False
+            metadata_variant = changed_properties.get("Metadata")
+            if not metadata_variant or not metadata_variant.value:
+                return
+
             self.metadata = metadata_variant.value
 
-            meta_length = self.metadata.get("mpris:length")
-            self.track_length = meta_length.value
+            artist_variant = self.metadata.get("xesam:artist")
+            title_variant = self.metadata.get("xesam:title")
+            length_variant = self.metadata.get("mpris:length")
 
-            meta_artist_variant = self.metadata.get("xesam:artist")
-            meta_track_variant = self.metadata.get("xesam:title")
-            holder = self.current_track.copy()
+            self.current_artist = (
+                artist_variant.value[0]
+                if artist_variant and artist_variant.value
+                else "Unknown Artist"
+            )
+            self.current_title = (
+                title_variant.value if title_variant else "Unknown Title"
+            )
+            self.track_length = length_variant.value if length_variant else 0
+            self.update_current_track()
 
-            if meta_artist_variant and meta_artist_variant.value:
-                self.previous_track = holder
-                self.current_artist = meta_artist_variant.value[0]
-
-            if meta_track_variant:
-                self.previous_track = holder
-                self.current_title = meta_track_variant.value
-
-            if self.current_artist and self.current_title:
-                self.update_current_track()
+            if self.current_title != "Unknown Title":
+                print(
+                    f"\nTrack Changed: {self.current_title} - {self.current_artist} ({self.track_length / 1_000_000:.0f}s)"
+                )
 
         if "PlaybackStatus" in changed_properties:
-            playback_status_variant = changed_properties["PlaybackStatus"]
-            self.playback_status = playback_status_variant.value
-            print("# Playback: ", self.playback_status)
+            status_variant = changed_properties.get("PlaybackStatus")
+            if status_variant:
+                self.playback_status = status_variant.value
+                print(f"# Playback Status: {self.playback_status}")
 
-        # asyncio.create_task(base_threshold)
-        self.base_threshold()
-        await self._validate_scrobbler()
+        if (
+            self.playback_status == "Playing"
+            and not self.scrobbled
+            and not self.scrobble_task
+        ):
+            if self.track_length > 30_000_000:
+                scrobble_point_us = min(self.track_length / 2, 240 * 1_000_000)
+                delay_sec = scrobble_point_us / 1_000_000
+                self.scrobble_task = asyncio.create_task(
+                    self._scrobble_after_delay(delay_sec)
+                )
+            else:
+                if self.track_length > 0:
+                    print(f"Track '{self.current_title}' is too short to scrobble.")
 
-        # TODO: re threshold logic, first do baseline 30s threshhold, ocne everything works etc only then should u implement timestamp-related logic
+        elif self.playback_status in ["Paused", "Stopped"]:
+            if self.scrobble_task:
+                self.scrobble_task.cancel()
+                self.scrobble_task = None
 
     async def connect(self):
         bus = self.bus
@@ -231,36 +238,16 @@ class MPrisPlayer:
         self.player = self.object.get_interface(PLAYER_INTERFACE_NAME)
         self.properties = self.object.get_interface(PROPERTY_NAME)
 
-        initial_properties = await self.properties.call_get_all(PLAYER_INTERFACE_NAME)
-
-        # TODO: REFACTOR
-        # duplicate logic from proprety change callback, refactor
-        metadata_variant = initial_properties.get("Metadata")
-        if metadata_variant:
-            self.metadata = metadata_variant.value
-            meta_artist_variant = self.metadata.get("xesam:artist")
-            meta_track_variant = self.metadata.get("xesam:title")
-
-            meta_length = self.metadata.get("mpris:length")
-            self.track_length = meta_length.value
-
-            if meta_artist_variant and meta_artist_variant.value:
-                self.current_artist = meta_artist_variant.value[0]
-            if meta_track_variant:
-                self.current_title = meta_track_variant.value
-            if self.current_artist and self.current_title:
-                self.update_current_track()
-                # self.previous_track = self.current_track.copy()
-
-            print(
-                f"current_track on connnect: {self.current_title} - {self.current_artist}"
-            )
-            print(f"prev: {self.previous_track}")
-
-        status_variant = initial_properties.get("PlaybackStatus")
-        if status_variant:
-            self.playback_status = status_variant.value
-
         self.properties.on_properties_changed(self.property_change_callback)
-        await self._validate_scrobbler()
+
+        try:
+            initial_properties = await self.properties.call_get_all(
+                PLAYER_INTERFACE_NAME
+            )
+            await self.property_change_callback(
+                PLAYER_INTERFACE_NAME, initial_properties, []
+            )
+        except DBusError as e:
+            print(f"Can't get initial properties for {self.service_name}. Error: {e}")
+
         return self

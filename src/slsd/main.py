@@ -18,14 +18,14 @@ except Exception as e:
     print("Failed to instantiate scrobbler object", e)
 
 
+# TODO: exception handling etc
 async def catch_property_change(artist, track):
     try:
         await asyncio.to_thread(scrobbler.connect)
     except Exception as e:
         print("Failed to connect to scrobbler, incorrect credentials?: ", e)
 
-    # Delay .scrobble call instead of invoking the function and passing that value
-    # await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
+    await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
     print(f"Scrobbled: {track} - {artist}")
     return artist, track
 
