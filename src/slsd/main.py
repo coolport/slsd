@@ -31,11 +31,13 @@ async def catch_property_change(artist, track):
 
 
 async def main():
+    # TODO: safely get from config (getattr?)
     service_manager = ServiceManager(
         DBUS_SERVICE_NAME,
         DBUS_OBJECT_PATH,
         catch_property_change,
         config.BLACKLIST,
+        config.THRESHOLD,
     )
     await service_manager.connect()
 

@@ -2,7 +2,6 @@ import asyncio
 from dbus_next.aio import MessageBus
 from dbus_next.errors import DBusError
 
-from slsd import config
 
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
@@ -12,10 +11,15 @@ PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
 
 
-# TODO: actual proper logging
+# TODO: actual proper logging, exception handling, etc
 class ServiceManager:
     def __init__(
-        self, dbus_service_name, dbus_object_path, property_signal_callback, blacklist
+        self,
+        dbus_service_name,
+        dbus_object_path,
+        property_signal_callback,
+        blacklist,
+        threshold=0,
     ):
         self.players = {}
         self.bus = None
@@ -27,6 +31,7 @@ class ServiceManager:
         self.object_path = dbus_object_path
         self.property_signal_callback = property_signal_callback
         self.blacklist = blacklist
+        self.threshold = threshold
 
     async def connect(self):
         try:
@@ -102,6 +107,7 @@ class ServiceManager:
                     MP2_OBJECT_PATH,
                     property_signal_callback,
                     self.bus,
+                    self.threshold,
                 )
                 await player.connect()
                 self.players.update({f"{player_name}": player})
@@ -114,7 +120,7 @@ class ServiceManager:
 
 
 class MPrisPlayer:
-    def __init__(self, service_name, object_path, callback=None, bus=None):
+    def __init__(self, service_name, object_path, callback=None, bus=None, threshold=0):
         self.service_name = service_name
         self.object_path = object_path
         self.callback = callback
@@ -135,6 +141,7 @@ class MPrisPlayer:
         self.track_length = 0
         self.scrobble_task = None
         self.scrobbled = False
+        self.user_threshold = threshold
 
     def update_current_track(self):
         self.current_track = {
@@ -209,12 +216,20 @@ class MPrisPlayer:
             and not self.scrobble_task
         ):
             if self.track_length > 30_000_000:
-                scrobble_point_us = min(self.track_length / 2, 240 * 1_000_000)
-                delay_sec = scrobble_point_us / 1_000_000
+                # mpris = microseconds (^-6)
+                standard_scrobble_point = min(self.track_length / 2, 240 * 1_000_000)
+
+                final_scrobble_point = standard_scrobble_point
+                if self.user_threshold > 0:
+                    hard_threshold = self.user_threshold * 1_000_000
+                    final_scrobble_point = min(standard_scrobble_point, hard_threshold)
+
+                delay_sec = final_scrobble_point / 1_000_000
                 self.scrobble_task = asyncio.create_task(
                     self._scrobble_after_delay(delay_sec)
                 )
             else:
+                # TODO: handle =>30s track scrobbling (finish whole thing)
                 if self.track_length > 0:
                     print(f"Track '{self.current_title}' is too short to scrobble.")
 
