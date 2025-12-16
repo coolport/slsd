@@ -1,7 +1,9 @@
 import asyncio
+import logging
 from dbus_next.aio import MessageBus
 from dbus_next.errors import DBusError
 
+log = logging.getLogger(__name__)
 
 DBUS_SERVICE_NAME = "org.freedesktop.DBus"
 DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
@@ -11,7 +13,6 @@ PLAYER_INTERFACE_NAME = "org.mpris.MediaPlayer2.Player"
 PROPERTY_NAME = "org.freedesktop.DBus.Properties"
 
 
-# TODO: actual proper logging, exception handling, etc
 class ServiceManager:
     def __init__(
         self,
@@ -37,9 +38,10 @@ class ServiceManager:
         try:
             self.bus = await MessageBus().connect()
         except Exception as e:
-            print("Failed: ", e)
+            log.error("Failed to connect to system DBus: %s", e)
+            return
 
-        print("DBus Connection Succesful!")
+        log.info("DBus Connection Succesful!")
         self.introspection = await self.bus.introspect(
             self.service_name,
             self.object_path,
@@ -54,7 +56,7 @@ class ServiceManager:
         self.interface.on_name_owner_changed(self.owner_change_callback)
 
         service_names = await self.interface.call_list_names()
-        print("Active MPRIS Players on connect: \n")
+        log.info("Active MPRIS Players on connect:")
         for name in service_names:
             if name.startswith("org.mpris.MediaPlayer2."):
                 if self.blacklist and any(item in name for item in self.blacklist):
@@ -65,14 +67,14 @@ class ServiceManager:
                         self.create_player(name, self.property_signal_callback)
                     )
                 else:
-                    print("Skipping: ", name, " already in dict.")
-                print(name)
+                    log.warning("Skipping %s, already in dict.", name)
+                log.info("- %s", name)
 
         return self
 
     def owner_change_callback(self, name, old_owner, new_owner):
         if name.startswith("org.mpris.MediaPlayer2."):
-            print(f"\nPlayer change: {name}, Old: {old_owner}, New: {new_owner}")
+            log.info("Player change: %s, Old: %s, New: %s", name, old_owner, new_owner)
 
             if new_owner and not old_owner:
                 if self.blacklist and any(item in name for item in self.blacklist):
@@ -82,11 +84,11 @@ class ServiceManager:
                         self.create_player(name, self.property_signal_callback)
                     )
                 else:
-                    print("Skipping: ", name, " already in dict.")
-                print(f"\nPlayer {name} found, adding to players[]")
+                    log.warning("Skipping %s, already in dict.", name)
+                log.info("Player %s found, adding to players dictionary.", name)
 
             elif old_owner and not new_owner:
-                print(f"\n{name} was closed. Removing from players[]")
+                log.info("%s was closed. Removing from players dictionary.", name)
                 player = self.players.pop(name, None)
                 if player and player.properties:
                     try:
@@ -94,9 +96,10 @@ class ServiceManager:
                             player.property_change_callback
                         )
                     except Exception as e:
-                        print(f"Error disconnecting player {player.service_name}: {e}")
-
-                print("Current: ", self.players)
+                        log.error(
+                            "Error disconnecting player %s: %s", player.service_name, e
+                        )
+                log.debug("Current players: %s", self.players)
         return self
 
     async def create_player(self, player_name, property_signal_callback):
@@ -111,10 +114,9 @@ class ServiceManager:
                 )
                 await player.connect()
                 self.players.update({f"{player_name}": player})
-                print("\nUpdated players: ")
-                print(self.players)
+                log.info("Updated players: %s", self.players)
             except DBusError as e:
-                print(f"Cant connect to player {player_name}: {e}")
+                log.error("Cant connect to player %s: %s", player_name, e)
 
         return self
 
@@ -152,17 +154,18 @@ class MPrisPlayer:
 
     async def _scrobble_after_delay(self, delay):
         try:
-            print(f"Scrobbling '{self.current_title}' in {delay:.2f} seconds...")
+            log.info("Scrobbling '%s' in %.2f seconds...", self.current_title, delay)
             await asyncio.sleep(delay)
 
-            print(f"Scrobbled: {self.current_title} - {self.current_artist}")
+            log.info(
+                "Timer complete, sending scrobble request for '%s'", self.current_title
+            )
             await self.callback(self.current_artist, self.current_title)
             self.scrobbled = True
             self.scrobble_task = None
         except asyncio.CancelledError:
-            print(f"Scrobble for '{self.current_title}' was cancelled.")
+            log.info("Scrobble for '%s' was cancelled.", self.current_title)
 
-    # TODO: handle repeating songs
     async def property_change_callback(
         self,
         interface_name,
@@ -200,15 +203,18 @@ class MPrisPlayer:
             self.update_current_track()
 
             if self.current_title != "Unknown Title":
-                print(
-                    f"\nTrack Changed: {self.current_title} - {self.current_artist} ({self.track_length / 1_000_000:.0f}s)"
+                log.info(
+                    "Track Changed: %s - %s (%.0fs)",
+                    self.current_title,
+                    self.current_artist,
+                    self.track_length / 1_000_000,
                 )
 
         if "PlaybackStatus" in changed_properties:
             status_variant = changed_properties.get("PlaybackStatus")
             if status_variant:
                 self.playback_status = status_variant.value
-                print(f"# Playback Status: {self.playback_status}")
+                log.info("Playback Status: %s", self.playback_status)
 
         if (
             self.playback_status == "Playing"
@@ -216,28 +222,29 @@ class MPrisPlayer:
             and not self.scrobble_task
         ):
             if self.track_length > 30_000_000:
-                # mpris = microseconds (^-6)
-                standard_scrobble_point = min(self.track_length / 2, 240 * 1_000_000)
+                standard_scrobble_point_us = min(self.track_length / 2, 240 * 1_000_000)
 
-                final_scrobble_point = standard_scrobble_point
+                final_scrobble_point_us = standard_scrobble_point_us
                 if self.user_threshold > 0:
-                    hard_threshold = self.user_threshold * 1_000_000
-                    final_scrobble_point = min(standard_scrobble_point, hard_threshold)
+                    hard_threshold_us = self.user_threshold * 1_000_000
+                    final_scrobble_point_us = min(
+                        standard_scrobble_point_us, hard_threshold_us
+                    )
 
-                delay_sec = final_scrobble_point / 1_000_000
+                delay_sec = final_scrobble_point_us / 1_000_000
                 self.scrobble_task = asyncio.create_task(
                     self._scrobble_after_delay(delay_sec)
                 )
             else:
-                # TODO: handle =>30s track scrobbling (finish whole thing)
                 if self.track_length > 0:
-                    print(f"Track '{self.current_title}' is too short to scrobble.")
+                    log.info("Track '%s' is too short to scrobble.", self.current_title)
 
         elif self.playback_status in ["Paused", "Stopped"]:
             if self.scrobble_task:
                 self.scrobble_task.cancel()
                 self.scrobble_task = None
 
+    # TODO: handle race condition where program is added to list before proper init (missing mp2 interface, etc)
     async def connect(self):
         bus = self.bus
         self.introspection = await self.bus.introspect(
@@ -263,6 +270,10 @@ class MPrisPlayer:
                 PLAYER_INTERFACE_NAME, initial_properties, []
             )
         except DBusError as e:
-            print(f"Can't get initial properties for {self.service_name}. Error: {e}")
+            log.error(
+                "Can't get initial properties for %s. Error: %s",
+                self.service_name,
+                e,
+            )
 
         return self
