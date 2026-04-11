@@ -1,7 +1,9 @@
 # slsd - simple last.fm scrobbling daemon
 
 ![PyPI - Version](https://img.shields.io/pypi/v/slsd?style=flat)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/slsd?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=BLUE&left_text=downloads)](https://pepy.tech/projects/slsd)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/coolport/slsd/.github%2Fworkflows%2Fpublish.yml)
+
 
 This project was a personal tool of mine turned into a more full (yet minimalistic) program/daemon. It is used for background scrobbling of music to last.fm and is compatible with any music player (and browsers, or other apps) as long as they expose an MPRIS interface to DBus (which most players do).
 The difference between this program and others is in the daemonization, where compatability is maximized since systemd can be odd sometimes, and with the setup -- installing the program is easy with pipx, and the program itself provides a cli for setting up the systemd service file. 
@@ -9,7 +11,7 @@ The difference between this program and others is in the daemonization, where co
 ## Installation
 ```BASH
 pipx install slsd
-slsd install-service (or 'slsd run' to run it in the foreground)
+slsd install-service #or 'slsd run' to run it directly in the foreground
 ```
 After install, simply follow the steps that will be displayed in your terminal:
 ```BASH
