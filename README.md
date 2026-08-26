@@ -11,6 +11,7 @@ The difference between this program and others is in the daemonization, where co
 ## Installation
 ```BASH
 pipx install slsd
+slsd setup #authenticate with last.fm in your browser (one time)
 slsd install-service #or 'slsd run' to run it directly in the foreground
 ```
 After install, simply follow the steps that will be displayed in your terminal:
@@ -30,12 +31,18 @@ To check its status and logs:
   journalctl --user -u slsd.service -f
 ```
 
+## Authentication
+The easiest way to authenticate is `slsd setup`: it opens your browser, you click 'Allow access' on last.fm, and slsd saves a session key + your username into the config for you -- no password entry needed. The session stays valid until you revoke it, so this is only done once (run `slsd setup` again anytime if it ever stops working). You still need your own api_key/api_secret in the config first, get those from https://www.last.fm/api/account_creation. Prefer the old way? Manual username/password below works exactly as before.
+
 ## Configuration
 This project looks for `$XDG_CONFIG_HOME/slsd/config.toml`
 
 Template:
 ```toml
 [credentials]
+# written automatically by 'slsd setup':
+# session_key = "..."
+# username = "..."
 username = "lastfm_username"
 password = "lastfm_password"
 api_key = "7abd4278b39f061fc108bdf148c67db4" # Get these from your account page
