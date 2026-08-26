@@ -1,106 +1,113 @@
 import asyncio
-import logging
-import shutil
-import os
-from pathlib import Path
 import getpass
+import logging
+import os
+import shutil
+from pathlib import Path
+
 import typer
 
 from slsd import config
-from slsd.dbus import ServiceManager
-from slsd.lastfm import Scrobbler
+from slsd.config import Config, ConfigError, save_session
+from slsd.dbus import DBUS_OBJECT_PATH, DBUS_SERVICE_NAME, ServiceManager
+from slsd.lastfm import (
+    AuthError,
+    Scrobbler,
+    create_web_auth_url,
+    open_browser,
+    wait_for_authorization,
+)
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-log = logging.getLogger(__name__)
+for noisy in ("pylast", "httpx", "httpcore"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+log = logging.getLogger("slsd")
 
-DBUS_SERVICE_NAME = "org.freedesktop.DBus"
-DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
+app = typer.Typer(no_args_is_help=True)
 
-app = typer.Typer()
 
-try:
-    scrobbler = Scrobbler(
-        config.API_KEY,
-        config.API_SECRET,
-        config.USERNAME,
-        config.PASSWORD_HASH,
+def load_config_or_exit() -> Config:
+    try:
+        cfg = config.load_config()
+    except ConfigError as e:
+        log.error("%s", e)
+        raise typer.Exit(code=1) from e
+    return cfg
+
+
+def build_scrobbler(cfg: Config) -> Scrobbler:
+    return Scrobbler(
+        api_key=cfg.api_key,
+        api_secret=cfg.api_secret,
+        username=cfg.username,
+        password_hash=cfg.password_hash,
+        session_key=cfg.session_key,
     )
-except Exception as e:
-    log.error("Failed to instantiate scrobbler object: %s", e)
 
 
 def ensure_dbus_environment():
     if os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
-        log.info("Using existing DBus address from environment")
         return
 
-    log.info("DBus address not set, attempting auto-detection...")
-
-    # Case 1: Standard location
     uid = os.getuid()
     standard_path = Path(f"/run/user/{uid}/bus")
 
     if standard_path.exists() and standard_path.is_socket():
-        dbus_addr = f"unix:path={standard_path}"
-        os.environ["DBUS_SESSION_BUS_ADDRESS"] = dbus_addr
-        log.info("Found DBus socket at: %s", dbus_addr)
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={standard_path}"
+        log.info("Found DBus socket at %s", standard_path)
         return
 
-    # Case 2: tmp (like mine)
-    log.info("Standard location not found, searching /tmp...")
-    tmp_dir = Path("/tmp")
-
-    for item in tmp_dir.glob("dbus-*"):
+    for item in Path("/tmp").glob("dbus-*"):
         if item.is_socket():
-            dbus_addr = f"unix:path={item}"
-            os.environ["DBUS_SESSION_BUS_ADDRESS"] = dbus_addr
-            log.info("✓ Found DBus socket at: %s", dbus_addr)
+            os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={item}"
+            log.info("Found DBus socket at %s", item)
             return
 
-    # If we get here, no socket was found
-    log.error("Could not find any DBus session socket!")
-    log.error("Service may not detect MPRIS players.")
-    log.error("Checked: %s and /tmp/dbus-*", standard_path)
-
-    # Set fallback
-    fallback = f"unix:path=/run/user/{uid}/bus"
+    fallback = f"unix:path={standard_path}"
     os.environ["DBUS_SESSION_BUS_ADDRESS"] = fallback
-    log.warning("Using fallback address: %s", fallback)
+    log.warning(
+        "No DBus session socket found (checked %s and /tmp/dbus-*). "
+        "Falling back to %s; players may not be detected.",
+        standard_path,
+        fallback,
+    )
 
 
-async def catch_property_change(artist, track):
+async def handle_scrobble(scrobbler: Scrobbler, artist: str | None, title: str | None):
     try:
-        await asyncio.to_thread(scrobbler.connect)
+        await asyncio.to_thread(scrobbler.scrobble, artist, title)
+        log.info("Scrobbled: %s - %s", title, artist)
+    except AuthError as e:
+        log.error("%s", e)
     except Exception as e:
-        log.error("Failed to connect to Last.fm, incorrect credentials?: %s", e)
-        return
-
-    try:
-        await asyncio.to_thread(lambda: scrobbler.scrobble(artist, track))
-        log.info("Successfully scrobbled: %s - %s", track, artist)
-    except Exception as e:
-        log.error("Failed to scrobble '%s - %s': %s", track, artist, e)
+        log.error("Failed to scrobble '%s - %s': %s", title, artist, e)
 
 
-async def _run_async_daemon():
-    threshold = getattr(config, "THRESHOLD", 0)
-
+async def _run_async_daemon(scrobbler: Scrobbler, cfg: Config):
     service_manager = ServiceManager(
         DBUS_SERVICE_NAME,
         DBUS_OBJECT_PATH,
-        catch_property_change,
-        config.BLACKLIST,
-        threshold,
+        lambda artist, title: handle_scrobble(scrobbler, artist, title),
+        cfg.blacklist,
+        cfg.threshold,
     )
-    await service_manager.connect()
+    if await service_manager.connect() is None:
+        log.error("Could not connect to DBus; exiting. "
+                  "Run slsd inside an active desktop session.")
+        return
+
+    auth_desc = (
+        f"session key for '{cfg.username}'"
+        if cfg.auth_mode == "session"
+        else f"password credentials for '{cfg.username}'"
+    )
+    log.info("Daemon started using %s. Monitoring MPRIS players...", auth_desc)
 
     try:
-        log.info("Daemon started. Monitoring MPRIS players...")
         while True:
             await asyncio.sleep(3600)
     except asyncio.CancelledError:
@@ -109,18 +116,75 @@ async def _run_async_daemon():
 
 @app.command()
 def run():
+    """Run the scrobbler daemon in the foreground."""
+    cfg = load_config_or_exit()
+    scrobbler = build_scrobbler(cfg)
+
     ensure_dbus_environment()
 
     try:
-        asyncio.run(_run_async_daemon())
+        asyncio.run(_run_async_daemon(scrobbler, cfg))
     except KeyboardInterrupt:
         log.info("Shutdown requested by user (Ctrl+C)")
     except Exception as e:
         log.error("An unexpected error occurred in the daemon: %s", e)
 
 
+@app.command()
+def setup():
+    """Authenticate with Last.fm via your browser and save the session."""
+    print("\nLast.fm setup\n", flush=True)
+
+    try:
+        api_key, api_secret = config.load_api_credentials()
+        existing = None
+    except ConfigError:
+        try:
+            existing = config.load_config()
+            api_key, api_secret = existing.api_key, existing.api_secret
+        except ConfigError as e:
+            log.error("%s", e)
+            raise typer.Exit(code=1) from e
+
+    if existing and existing.session_key:
+        print(f"A session already exists for '{existing.username}'.", flush=True)
+        print("Continuing will replace it with a fresh authorization.\n", flush=True)
+
+    try:
+        generator, url = create_web_auth_url(api_key, api_secret)
+    except Exception as e:
+        log.error(
+            "Could not request an auth token from Last.fm (%s).\n"
+            "Check that `api_key` and `api_secret` in your config are correct.",
+            e,
+        )
+        raise typer.Exit(code=1) from e
+
+    print("Opening your browser to authorize slsd on Last.fm...", flush=True)
+    print(f"If it does not open, visit this URL manually:\n\n  {url}\n", flush=True)
+    open_browser(url)
+
+    print("Waiting for authorization... (Ctrl+C to cancel)", flush=True)
+
+    try:
+        session_key, username = wait_for_authorization(generator, url)
+    except AuthError as e:
+        log.error("%s", e)
+        raise typer.Exit(code=1) from e
+    except KeyboardInterrupt:
+        print("\nSetup cancelled. Nothing was saved.", flush=True)
+        raise typer.Exit(code=1) from None
+
+    path = save_session(session_key, username)
+
+    print(f"\nSuccessfully authenticated as {username}.", flush=True)
+    print(f"Configuration saved to {path}.", flush=True)
+    print("You can now run `slsd run` or install the systemd service.", flush=True)
+
+
 @app.command("install-service")
 def install_service_command():
+    """Install the slsd systemd user service."""
     log.info("Attempting to install systemd user service for slsd...")
 
     executable_path = shutil.which("slsd")
@@ -154,10 +218,9 @@ WantedBy=graphical-session.target
     systemd_dir = Path.home() / ".config" / "systemd" / "user"
     try:
         systemd_dir.mkdir(parents=True, exist_ok=True)
-        log.info("Ensured systemd user directory exists at: %s", systemd_dir)
     except OSError as e:
         log.error("Failed to create systemd user directory '%s': %s", systemd_dir, e)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
     service_file_path = systemd_dir / "slsd.service"
 
@@ -166,18 +229,28 @@ WantedBy=graphical-session.target
         log.info("Service file written to: %s", service_file_path)
     except OSError as e:
         log.error("Failed to write service file to '%s': %s", service_file_path, e)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
-    print("\nSystemd user service file created successfully!")
-    print(f" Path: {service_file_path}")
-    print(f"\nPlease set up the config file in $XDG_CONFIG_HOME/slsd/config.toml")
-    print(f"template can be found in the README")
-    print("\nNext steps: enable the service. Example:")
-    print("\n  systemctl --user daemon-reload")
-    print("  systemctl --user enable --now slsd.service")
-    print("\nTo check its status and logs:")
-    print("  systemctl --user status slsd.service")
-    print("  journalctl --user -u slsd.service -f")
+    print("\nSystemd user service file created successfully!", flush=True)
+    print(f"  Path: {service_file_path}", flush=True)
+
+    try:
+        cfg = config.load_config()
+        authenticated = bool(cfg.session_key or cfg.password_hash)
+    except ConfigError as e:
+        print(f"\nConfig problem: {e}", flush=True)
+        authenticated = False
+
+    if not authenticated:
+        print("\nNext step: authenticate with Last.fm:", flush=True)
+        print("  slsd setup", flush=True)
+
+    print("\nThen enable the service:", flush=True)
+    print("  systemctl --user daemon-reload", flush=True)
+    print("  systemctl --user enable --now slsd.service", flush=True)
+    print("\nTo check its status and logs:", flush=True)
+    print("  systemctl --user status slsd.service", flush=True)
+    print("  journalctl --user -u slsd.service -f", flush=True)
 
 
 def cli():
