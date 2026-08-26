@@ -17,3 +17,4 @@ wheels/
 
 # Secrets
 .env
+config.toml
