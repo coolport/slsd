@@ -36,50 +36,59 @@ def hash_password(password: str) -> str:
     return hashlib.md5(password.encode("utf-8")).hexdigest()
 
 
-def load_api_credentials(path: Path | None = None) -> tuple[str, str]:
-    """Load just api_key/api_secret; used by `slsd setup` before any auth exists."""
-    path = path or config_file()
+BUNDLED_API_KEY = "486bef1b515d38e53978f1d36f84a1ae"
+BUNDLED_API_SECRET = "96ecd98d751ca3643349c5becbc05c8a"
 
-    if not path.exists():
-        raise ConfigError(
-            f"No configuration found at {path}\n"
-            "Create it with `api_key` and `api_secret` under [credentials]\n"
-            "(get API credentials at https://www.last.fm/api/account_creation), "
-            "then run `slsd setup`."
-        )
 
-    try:
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"Could not parse {path}: {e}") from e
-
-    credentials = data.get("credentials")
-    if not isinstance(credentials, dict):
-        raise ConfigError(
-            f"{path} has no [credentials] section.\n"
-            "It needs at least `api_key` and `api_secret`."
-        )
-
+def _resolve_api_keys(credentials: dict) -> tuple[str, str]:
     api_key = credentials.get("api_key")
     api_secret = credentials.get("api_secret")
-    if not api_key or not api_secret:
-        raise ConfigError(
-            "`api_key` and `api_secret` are required under [credentials].\n"
-            "Get them from https://www.last.fm/api/account_creation\n"
-            f"Then update {path}."
-        )
+    if api_key and api_secret:
+        return api_key, api_secret
+    if BUNDLED_API_KEY and BUNDLED_API_SECRET:
+        return BUNDLED_API_KEY, BUNDLED_API_SECRET
+    raise ConfigError(
+        "`api_key` and `api_secret` are required under [credentials].\n"
+        "Get them from https://www.last.fm/api/account_creation\n"
+        f"Then update {config_file()}."
+    )
 
-    return api_key, api_secret
+
+def load_api_credentials(path: Path | None = None) -> tuple[str, str]:
+    """Load just api_key/api_secret; used by `slsd setup` before any auth exists.
+
+    Falls back to the bundled app credentials when the user has none.
+    """
+    path = path or config_file()
+
+    credentials: dict = {}
+    if path.exists():
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            raise ConfigError(f"Could not parse {path}: {e}") from e
+        if isinstance(data.get("credentials"), dict):
+            credentials = data["credentials"]
+
+    return _resolve_api_keys(credentials)
 
 
 def load_config(path: Path | None = None) -> Config:
     path = path or config_file()
-    api_key, api_secret = load_api_credentials(path)
 
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    data: dict = {}
+    if path.exists():
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            raise ConfigError(f"Could not parse {path}: {e}") from e
+
     credentials = data.get("credentials", {})
+    if not isinstance(credentials, dict):
+        credentials = {}
+    api_key, api_secret = _resolve_api_keys(credentials)
 
     session_key = credentials.get("session_key")
     username = credentials.get("username")

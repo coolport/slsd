@@ -3,6 +3,8 @@ import getpass
 import logging
 import os
 import shutil
+import sys
+from importlib import metadata
 from pathlib import Path
 
 import typer
@@ -136,15 +138,15 @@ def setup():
     print("\nLast.fm setup\n", flush=True)
 
     try:
-        api_key, api_secret = config.load_api_credentials()
-        existing = None
+        existing = config.load_config()
     except ConfigError:
-        try:
-            existing = config.load_config()
-            api_key, api_secret = existing.api_key, existing.api_secret
-        except ConfigError as e:
-            log.error("%s", e)
-            raise typer.Exit(code=1) from e
+        existing = None
+
+    try:
+        api_key, api_secret = config.load_api_credentials()
+    except ConfigError as e:
+        log.error("%s", e)
+        raise typer.Exit(code=1) from e
 
     if existing and existing.session_key:
         print(f"A session already exists for '{existing.username}'.", flush=True)
@@ -253,7 +255,33 @@ WantedBy=graphical-session.target
     print("  journalctl --user -u slsd.service -f", flush=True)
 
 
+@app.command()
+def version():
+    """Print the slsd version."""
+    print(f"slsd {get_version()}", flush=True)
+
+
+def get_version() -> str:
+    try:
+        return metadata.version("slsd")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
+HELP_ALIASES = {
+    "-h": "--help",
+    "--h": "--help",
+    "-help": "--help",
+    "help": "--help",
+}
+
+
+def normalize_args(argv: list[str]) -> list[str]:
+    return [HELP_ALIASES.get(arg, arg) for arg in argv]
+
+
 def cli():
+    sys.argv = [sys.argv[0], *normalize_args(sys.argv[1:])]
     app()
 
 

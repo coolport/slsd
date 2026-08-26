@@ -75,14 +75,19 @@ class TestSetupCommand:
         assert cfg.username == "alice"
         assert cfg.auth_mode == "session"
 
-    def test_setup_without_api_credentials_fails_cleanly(self, tmp_path, monkeypatch, caplog):
+    def test_setup_with_no_config_uses_bundled_keys(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        self._patch_auth_flow(monkeypatch)
 
-        with caplog.at_level("ERROR", logger="slsd"):
-            result = runner.invoke(main.app, ["setup"])
+        result = runner.invoke(main.app, ["setup"])
 
-        assert result.exit_code == 1
-        assert any("api_key" in record.message for record in caplog.records)
+        assert result.exit_code == 0
+        assert "Successfully authenticated as alice" in result.output
+
+        cfg = load_config()
+        assert cfg.session_key == "sk_new"
+        assert cfg.username == "alice"
+        assert cfg.api_key == main.config.BUNDLED_API_KEY
 
 
 class TestRunCommand:
@@ -92,3 +97,43 @@ class TestRunCommand:
         result = runner.invoke(main.app, ["run"])
 
         assert result.exit_code == 1
+
+
+class TestHelpAliases:
+    def test_normalize_args_maps_all_aliases(self):
+        assert main.normalize_args(["-h"]) == ["--help"]
+        assert main.normalize_args(["--h"]) == ["--help"]
+        assert main.normalize_args(["-help"]) == ["--help"]
+        assert main.normalize_args(["help"]) == ["--help"]
+        assert main.normalize_args(["--help"]) == ["--help"]
+        assert main.normalize_args(["run", "x"]) == ["run", "x"]
+
+    def test_cli_routes_aliases_to_help(self, monkeypatch, capsys):
+        for alias in ("-h", "--h", "-help", "help", "--help"):
+            monkeypatch.setattr("sys.argv", ["slsd", alias])
+            with pytest.raises(SystemExit) as exc:
+                main.cli()
+            assert exc.value.code == 0
+            assert "Usage" in capsys.readouterr().out
+
+    def test_cli_alias_after_subcommand_shows_command_help(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("sys.argv", ["slsd", "setup", "-h"])
+        with pytest.raises(SystemExit) as exc:
+            main.cli()
+        assert exc.value.code == 0
+        assert "Last.fm" in capsys.readouterr().out
+
+
+class TestVersionCommand:
+    def test_version_prints_version(self):
+        result = runner.invoke(main.app, ["version"])
+        assert result.exit_code == 0
+        assert result.output.strip() == f"slsd {main.get_version()}"
+
+    def test_get_version_returns_installed_dist_version(self):
+        from importlib import metadata
+
+        assert main.get_version() == metadata.version("slsd")

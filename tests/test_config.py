@@ -3,7 +3,7 @@
 import pytest
 
 from slsd import config
-from slsd.config import ConfigError, load_config, save_session
+from slsd.config import ConfigError, load_api_credentials, load_config, save_session
 
 VALID = """
 [credentials]
@@ -40,7 +40,28 @@ def write_config(tmp_path, content):
     return cfg_file
 
 
-def test_missing_config_mentions_setup(tmp_path):
+def test_missing_config_falls_back_to_bundled_keys(tmp_path):
+    api_key, api_secret = load_api_credentials(tmp_path / "nonexistent.toml")
+    assert api_key == config.BUNDLED_API_KEY
+    assert api_secret == config.BUNDLED_API_SECRET
+
+
+def test_blank_user_keys_fall_back_to_bundled(tmp_path):
+    path = write_config(tmp_path, '[credentials]\napi_key = ""\napi_secret = ""\n')
+    assert load_api_credentials(path) == (
+        config.BUNDLED_API_KEY,
+        config.BUNDLED_API_SECRET,
+    )
+
+
+def test_user_keys_override_bundled(tmp_path):
+    path = write_config(
+        tmp_path, '[credentials]\napi_key = "mine"\napi_secret = "also_mine"\n'
+    )
+    assert load_api_credentials(path) == ("mine", "also_mine")
+
+
+def test_load_config_with_no_file_reports_missing_auth(tmp_path):
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_path / "nonexistent.toml")
     assert "slsd setup" in str(exc.value)
@@ -55,12 +76,6 @@ def test_malformed_toml(tmp_path):
 def test_missing_credentials_section(tmp_path):
     path = write_config(tmp_path, '[options]\nthreshold = 5\n')
     with pytest.raises(ConfigError, match="credentials"):
-        load_config(path)
-
-
-def test_missing_api_keys(tmp_path):
-    path = write_config(tmp_path, '[credentials]\nusername = "x"\n')
-    with pytest.raises(ConfigError, match="api_key"):
         load_config(path)
 
 

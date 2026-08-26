@@ -32,7 +32,7 @@ To check its status and logs:
 ```
 
 ## Authentication
-The easiest way to authenticate is `slsd setup`: it opens your browser, you click 'Allow access' on last.fm, and slsd saves a session key + your username into the config for you -- no password entry needed. The session stays valid until you revoke it, so this is only done once (run `slsd setup` again anytime if it ever stops working). You still need your own api_key/api_secret in the config first, get those from https://www.last.fm/api/account_creation. Prefer the old way? Manual username/password below works exactly as before.
+The easiest way to authenticate is `slsd setup`: it opens your browser, you click 'Allow access' on last.fm, and slsd saves a session key + your username into the config (generates if doesn't exist).
 
 ## Configuration
 This project looks for `$XDG_CONFIG_HOME/slsd/config.toml`
@@ -43,10 +43,13 @@ Template:
 # written automatically by 'slsd setup':
 # session_key = "..."
 # username = "..."
-username = "lastfm_username"
-password = "lastfm_password"
-api_key = "7abd4278b39f061fc108bdf148c67db4" # Get these from your account page
-api_secret = "4281fcb749ba1ec9c1e32121d85c0192c"
+
+# everything below is optional -- only for manual configuration.
+# slsd has built-in keys.
+# username = "lastfm_username"
+# password = "lastfm_password"
+# api_key = "your_api_key"
+# api_secret = "your_api_secret"
 
 [options]
 blacklist = ["firefox-esr", "playerctl", "spotify"]
