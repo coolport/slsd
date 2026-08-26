@@ -1,4 +1,4 @@
-from lastfm import Scrobbler
+from slsd.lastfm import Scrobbler
 
 DUMMY_API_KEY = "test_api_key"
 DUMMY_API_SECRET = "test_api_secret"
