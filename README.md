@@ -11,22 +11,24 @@ The difference between this program and others is in the daemonization, where co
 ## Installation
 ```BASH
 pipx install slsd
-slsd setup #authenticate with last.fm in your browser (one time)
-slsd install-service #or 'slsd run' to run it directly in the foreground
+slsd setup # authenticate with browser + bootstrap config file
+slsd install-service # or 'slsd run' to run it directly in the foreground
 ```
 After install, simply follow the steps that will be displayed in your terminal:
 ```BASH
 Systemd user service file created successfully!
-Path: /home/aidan/.config/systemd/user/slsd.service
+Path: /home/user/.config/systemd/user/slsd.service
 
 Please set up the config file in $XDG_CONFIG_HOME/slsd/config.toml
 template can be found in the README
 
-To enable the service::
+To enable the service:
+
   systemctl --user daemon-reload
   systemctl --user enable --now slsd.service
 
 To check its status and logs:
+
   systemctl --user status slsd.service
   journalctl --user -u slsd.service -f
 ```
@@ -40,12 +42,11 @@ This project looks for `$XDG_CONFIG_HOME/slsd/config.toml`
 Template:
 ```toml
 [credentials]
-# written automatically by 'slsd setup':
-# session_key = "..."
-# username = "..."
+# Written automatically by 'slsd setup':
+# session_key = 
+# username =
 
-# everything below is optional -- only for manual configuration.
-# slsd has built-in keys.
+# Optional: manual auth with personal keys
 # username = "lastfm_username"
 # password = "lastfm_password"
 # api_key = "your_api_key"
